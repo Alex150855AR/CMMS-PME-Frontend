@@ -18,23 +18,19 @@ const INITIAL_STATIC_DATA = {
       { id: 'S-03', name: 'Carlos Lopez', role: 'Supervisor' },
       { id: 'S-04', name: 'Ana Diaz', role: 'Electricista' }
   ],
-  inventory: [
-      { id: 'P-101', name: 'Broca Tricónica 9"', desc: 'Acero', stock: 4, minStock: 2, location: 'Almacén' },
-      { id: 'P-102', name: 'Filtro Aceite', desc: 'Standard', stock: 1, minStock: 5, location: 'Estante B3' },
-      { id: 'P-103', name: 'Lubricante Industrial', desc: 'Sintético 5L', stock: 10, minStock: 8, location: 'Pasillo 4' }
-  ],
-  checklists: [] // Se puede poblar después
+  checklists: [] 
 };
 
 export default function App() {
   // --- ESTADOS DE LA INTERFAZ ---
   const [currentView, setCurrentView] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeModal, setActiveModal] = useState(null);
+  const [activeModal, setActiveModal] = useState(null); // 'asset', 'item'
   
   // --- ESTADOS DE DATOS (CONECTADOS) ---
-  const [dbAssets, setDbAssets] = useState([]);      // Datos reales de MySQL
-  const [dbWorkOrders, setDbWorkOrders] = useState([]); // Datos reales de MySQL
+  const [dbAssets, setDbAssets] = useState([]);      
+  const [dbWorkOrders, setDbWorkOrders] = useState([]); 
+  const [dbInventory, setDbInventory] = useState([]); // <--- NUEVO ESTADO INVENTARIO
   const [staticData, setStaticData] = useState(INITIAL_STATIC_DATA);
   const [loading, setLoading] = useState(true);
   const [serverStatus, setServerStatus] = useState('checking');
@@ -43,16 +39,20 @@ export default function App() {
   const [newAsset, setNewAsset] = useState({
     serial_number: '', fixture_name: '', production_line: 'Línea 1', model_id: 1
   });
+  
+  // Estado para Nuevo Ítem de Inventario
+  const [newItem, setNewItem] = useState({
+    part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, location_in_warehouse: 'General'
+  });
 
   // --- CONFIGURACIÓN API ---
-  const API_URL_ASSETS = 'http://localhost:3000/api/assets';
-  const API_URL_WO = 'http://localhost:3000/api/work-orders';
+  const BASE_URL = 'http://localhost:3000/api';
 
   // --- INICIO: CARGA DE DATOS ---
   useEffect(() => {
     const initData = async () => {
       setLoading(true);
-      await Promise.all([fetchAssets(), fetchWorkOrders()]);
+      await Promise.all([fetchAssets(), fetchWorkOrders(), fetchInventory()]);
       setLoading(false);
     };
     initData();
@@ -61,7 +61,7 @@ export default function App() {
   // --- FUNCIONES DE CONEXIÓN AL BACKEND ---
   const fetchAssets = async () => {
     try {
-      const response = await fetch(API_URL_ASSETS);
+      const response = await fetch(`${BASE_URL}/assets`);
       if (response.ok) {
         setDbAssets(await response.json());
         setServerStatus('online');
@@ -74,20 +74,24 @@ export default function App() {
 
   const fetchWorkOrders = async () => {
     try {
-      const response = await fetch(API_URL_WO);
-      if (response.ok) {
-        setDbWorkOrders(await response.json());
-      }
-    } catch (error) {
-      console.error("Error work orders:", error);
-    }
+      const response = await fetch(`${BASE_URL}/work-orders`);
+      if (response.ok) setDbWorkOrders(await response.json());
+    } catch (error) { console.error("Error work orders:", error); }
   };
 
+  const fetchInventory = async () => {
+    try {
+      const response = await fetch(`${BASE_URL}/inventory`);
+      if (response.ok) setDbInventory(await response.json());
+    } catch (error) { console.error("Error inventory:", error); }
+  };
+
+  // --- HANDLERS DE CREACIÓN ---
   const handleCreateAsset = async (e) => {
     e.preventDefault();
     try {
       const payload = { ...newAsset, model_id: 1, station: 'Móvil', condition_status: 'Activo' };
-      const response = await fetch(API_URL_ASSETS, {
+      const response = await fetch(`${BASE_URL}/assets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -103,14 +107,34 @@ export default function App() {
     } catch (error) { alert('❌ Error de conexión'); }
   };
 
+  const handleCreateItem = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch(`${BASE_URL}/inventory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem)
+      });
+      if (response.ok) {
+        setActiveModal(null);
+        setNewItem({ part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, location_in_warehouse: 'General' });
+        fetchInventory(); 
+        alert('✅ Repuesto guardado en MySQL');
+      } else {
+        const err = await response.json();
+        alert(`❌ Error: ${err.error}`);
+      }
+    } catch (error) { alert('❌ Error de conexión'); }
+  };
+
   // --- CÁLCULO DE KPIs ---
   const kpis = {
     totalOrders: dbWorkOrders.length,
     completed: dbWorkOrders.filter(w => w.status === 'Completado' || w.status === 'Ejecutado').length,
     pending: dbWorkOrders.filter(w => w.status === 'Pendiente').length,
-    availability: 98.5, // Simulado
-    mtbf: 720,          // Simulado
-    mttr: 4.2           // Simulado
+    availability: 98.5, 
+    mtbf: 720,          
+    mttr: 4.2           
   };
   
   const completionRate = kpis.totalOrders > 0 
@@ -127,7 +151,7 @@ export default function App() {
         <div className="flex gap-2">
            <span className="text-xs font-bold bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full border border-blue-100 flex items-center">
              {serverStatus === 'online' ? <Wifi className="w-3 h-3 mr-1"/> : <WifiOff className="w-3 h-3 mr-1"/>}
-             {serverStatus === 'online' ? 'Datos en Tiempo Real' : 'Modo Offline (Datos Estáticos)'}
+             {serverStatus === 'online' ? 'Datos en Tiempo Real' : 'Modo Offline'}
            </span>
         </div>
       </div>
@@ -138,40 +162,10 @@ export default function App() {
         <KpiCard title="Pendientes" value={kpis.pending} icon={<Clock />} color="orange" sub="Requieren atención" />
         <KpiCard title="Total Histórico" value={kpis.totalOrders} icon={<ClipboardList />} color="purple" sub="Órdenes registradas" />
       </div>
-
-      {/* Gráficos Visuales (Simulados con CSS) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 col-span-1">
-           <h3 className="text-sm font-bold text-gray-700 mb-4">MP vs Correctivo</h3>
-           <div className="flex items-end justify-center gap-4 h-48 border-b border-gray-100 pb-2">
-              <div className="w-16 bg-blue-500 rounded-t-lg relative group transition-all hover:bg-blue-600" style={{height: '70%'}}>
-                 <span className="absolute -top-6 left-0 w-full text-center text-xs font-bold text-blue-600">70%</span>
-                 <p className="absolute bottom-2 w-full text-center text-white text-xs">Prev</p>
-              </div>
-              <div className="w-16 bg-red-500 rounded-t-lg relative group transition-all hover:bg-red-600" style={{height: '30%'}}>
-                 <span className="absolute -top-6 left-0 w-full text-center text-xs font-bold text-red-600">30%</span>
-                 <p className="absolute bottom-2 w-full text-center text-white text-xs">Corr</p>
-              </div>
-           </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 col-span-1 lg:col-span-2">
-           <h3 className="text-sm font-bold text-gray-700 mb-4">Tendencia Anual</h3>
-           <div className="flex items-end justify-between gap-2 h-48 border-b border-gray-100 pb-2">
-              {[40, 60, 45, 80, 55, 90, 65, 75, 50, 85, 95, 70].map((h, i) => (
-                <div key={i} className="w-full bg-emerald-400/80 hover:bg-emerald-500 rounded-t-sm transition-all relative group" style={{height: `${h}%`}}>
-                </div>
-              ))}
-           </div>
-           <div className="flex justify-between text-[10px] text-gray-400 mt-2 uppercase font-bold">
-              <span>Ene</span><span>Feb</span><span>Mar</span><span>Abr</span><span>May</span><span>Jun</span>
-              <span>Jul</span><span>Ago</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dic</span>
-           </div>
-        </div>
-      </div>
     </div>
   );
 
-  // 2. ACTIVOS (CONECTADO A BACKEND)
+  // 2. ACTIVOS
   const AssetsView = () => (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-lg border border-gray-200 shadow-sm gap-4">
@@ -187,9 +181,7 @@ export default function App() {
         </button>
       </div>
 
-      {loading ? (
-        <div className="text-center py-20"><Activity className="w-10 h-10 animate-spin mx-auto text-blue-500" /><p className="mt-2 text-gray-500">Sincronizando...</p></div>
-      ) : dbAssets.length === 0 ? (
+      {dbAssets.length === 0 ? (
         <div className="p-8 text-center text-gray-400 bg-gray-50 border border-dashed rounded-lg">No hay activos registrados en MySQL.</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -204,10 +196,6 @@ export default function App() {
                 <h3 className="text-sm font-bold text-gray-900 mb-1">{asset.fixture_name}</h3>
                 <p className="text-xs text-gray-500 mb-1 font-mono">SN: {asset.serial_number}</p>
                 <p className="text-xs text-blue-600 mb-2">{asset.model_name || 'Modelo Genérico'}</p>
-                <div className="mt-auto border-t pt-2 flex justify-between items-center text-xs text-gray-500">
-                  <span>{asset.production_line}</span>
-                  <button className="text-blue-600 hover:underline">Ver Historial</button>
-                </div>
              </div>
           ))}
         </div>
@@ -215,7 +203,7 @@ export default function App() {
     </div>
   );
 
-  // 3. ÓRDENES DE TRABAJO (CONECTADO A BACKEND)
+  // 3. ÓRDENES DE TRABAJO
   const WorkOrdersView = () => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 w-full overflow-hidden animate-in fade-in duration-300">
       <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
@@ -225,9 +213,7 @@ export default function App() {
         </button>
       </div>
       
-      {loading ? (
-        <div className="text-center py-10"><Activity className="w-8 h-8 animate-spin mx-auto text-blue-500"/></div>
-      ) : dbWorkOrders.length === 0 ? (
+      {dbWorkOrders.length === 0 ? (
         <div className="p-8 text-center text-gray-400">
            <ClipboardList className="w-12 h-12 mx-auto mb-2 opacity-20"/>
            <p>No hay órdenes registradas en MySQL.</p>
@@ -240,10 +226,8 @@ export default function App() {
                 <th className="px-4 py-3">ID</th>
                 <th className="px-4 py-3">Descripción</th>
                 <th className="px-4 py-3">Activo</th>
-                <th className="px-4 py-3">Tipo</th>
                 <th className="px-4 py-3">Prioridad</th>
                 <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -255,25 +239,16 @@ export default function App() {
                     <div className="font-bold text-xs">{ot.assetName}</div>
                     <div className="text-[10px]">{ot.assetId}</div>
                   </td>
-                  <td className="px-4 py-4"><span className="bg-gray-100 px-2 py-1 rounded text-gray-600">{ot.type}</span></td>
                   <td className="px-4 py-4">
                     <span className={`px-2 py-1 rounded font-bold ${
-                      ot.priority === 'Alta' || ot.priority === 'Critico' ? 'bg-red-100 text-red-800' : 
-                      ot.priority === 'Media' ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'
-                    }`}>
-                      {ot.priority}
-                    </span>
+                      ot.priority === 'Alta' || ot.priority === 'Critico' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                    }`}>{ot.priority}</span>
                   </td>
                   <td className="px-4 py-4">
                     <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase tracking-wide ${
                       ot.status === 'Pendiente' ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' : 
                       'bg-green-100 text-green-800 border border-green-200'
-                    }`}>
-                      {ot.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 text-center">
-                    <button className="text-gray-400 hover:text-blue-600 mx-1"><Hammer className="w-4 h-4"/></button>
+                    }`}>{ot.status}</span>
                   </td>
                 </tr>
               ))}
@@ -284,34 +259,48 @@ export default function App() {
     </div>
   );
 
-  // 4. INVENTARIO (DATOS ESTÁTICOS RESTAURADOS)
+  // 4. INVENTARIO (CONECTADO A BACKEND)
   const InventoryView = () => (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 fade-in animate-in duration-300">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-lg font-bold">Inventario de Repuestos</h2>
-        <button className="bg-blue-600 text-white px-4 py-2 rounded-md flex items-center shadow-sm hover:bg-blue-700">
-          <Plus className="w-4 h-4 mr-2" /> Agregar
+        <h2 className="text-lg font-bold flex items-center gap-2">
+          {serverStatus === 'online' ? <div className="w-2 h-2 rounded-full bg-green-500"></div> : <div className="w-2 h-2 rounded-full bg-gray-400"></div>}
+          Inventario de Repuestos
+        </h2>
+        <button onClick={() => setActiveModal('item')} className="bg-blue-600 text-white px-4 py-2 rounded-md flex items-center shadow-sm hover:bg-blue-700">
+          <Plus className="w-4 h-4 mr-2" /> Nuevo Ítem
         </button>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {staticData.inventory.map(i => (
-          <div key={i.id} className="border border-gray-200 p-4 rounded-lg hover:shadow-md transition-shadow">
-            <div className="flex justify-between font-bold text-gray-800 mb-1">
-              <span>{i.name}</span>
-              <span className="text-xs bg-gray-100 p-1 rounded font-mono text-gray-500">{i.id}</span>
+      
+      {/* Lista combinada (si DB vacía, muestra mensaje, sino muestra items reales) */}
+      {dbInventory.length === 0 ? (
+         <div className="text-center py-12 border-2 border-dashed rounded-xl">
+            <Package className="w-12 h-12 text-gray-300 mx-auto mb-2"/>
+            <p className="text-gray-500">Inventario vacío en base de datos.</p>
+         </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {dbInventory.map(i => (
+            <div key={i.item_id || i.id} className="border border-gray-200 p-4 rounded-lg hover:shadow-md transition-shadow bg-white">
+              <div className="flex justify-between font-bold text-gray-800 mb-1">
+                <span className="truncate pr-2">{i.name}</span>
+                <span className="text-xs bg-gray-100 p-1 rounded font-mono text-gray-500 whitespace-nowrap">{i.part_code || i.id}</span>
+              </div>
+              <p className="text-sm text-gray-500 mb-3 truncate">{i.description || i.desc}</p>
+              <div className="flex justify-between items-center text-sm font-bold">
+                <span className="text-red-500 text-xs">Min: {i.min_stock_level || i.minStock}</span>
+                <span className={`px-2 py-0.5 rounded ${(i.stock_quantity || i.stock) <= (i.min_stock_level || i.minStock) ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-green-50 text-green-600'}`}>
+                  Stock: {i.stock_quantity !== undefined ? i.stock_quantity : i.stock}
+                </span>
+              </div>
+              <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
+                <span className="text-xs text-gray-400 flex items-center"><Box className="w-3 h-3 mr-1"/> {i.location_in_warehouse || i.location}</span>
+                <button className="text-orange-600 text-xs font-bold border border-orange-200 bg-orange-50 px-2 py-1 rounded hover:bg-orange-100">Ajustar</button>
+              </div>
             </div>
-            <p className="text-sm text-gray-500 mb-3">{i.desc}</p>
-            <div className="flex justify-between items-center text-sm font-bold">
-              <span className="text-red-500">Min: {i.minStock}</span>
-              <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded">Stock: {i.stock}</span>
-            </div>
-            <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
-              <span className="text-xs text-gray-400 flex items-center"><Box className="w-3 h-3 mr-1"/> {i.location}</span>
-              <button className="text-orange-600 text-xs font-bold border border-orange-200 bg-orange-50 px-2 py-1 rounded hover:bg-orange-100">Retirar</button>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -368,18 +357,13 @@ export default function App() {
     </div>
   );
 
-  // 7. CHECKLIST (MANTENIDO SIMPLE)
+  // 7. CHECKLIST
   const ChecklistView = () => (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 fade-in w-full overflow-hidden animate-in duration-300">
         <h2 className="text-xl font-bold mb-4 flex items-center"><CheckSquare className="mr-2 text-blue-600" /> Checklist: Mantenimiento</h2>
-        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-          <div><label className="block text-xs font-bold text-gray-500 uppercase">Fecha</label><input type="date" className="mt-1 w-full border border-gray-300 rounded p-2 text-sm bg-white"/></div>
-          <div><label className="block text-xs font-bold text-gray-500 uppercase">Línea</label><input type="text" placeholder="Ej: Linea 1" className="mt-1 w-full border border-gray-300 rounded p-2 text-sm bg-white"/></div>
-          <div className="col-span-2 text-xs text-gray-400 italic pb-2 flex items-end">Seleccione un modelo para cargar los puntos de inspección (Módulo estático por ahora).</div>
-        </div>
         <div className="text-center py-10 text-gray-400 bg-gray-50 rounded border border-dashed border-gray-300 mt-4">
             <ArrowUp className="mx-auto h-8 w-8 mb-2 opacity-20"/>
-            <p>Seleccione parámetros arriba para iniciar checklist.</p>
+            <p>Módulo de Checklist (Próximamente)</p>
         </div>
     </div>
   );
@@ -408,7 +392,7 @@ export default function App() {
            <div className={`flex items-center gap-2 font-bold ${serverStatus === 'online' ? 'text-green-600' : 'text-red-500'}`}>
               {serverStatus === 'online' ? <Wifi className="w-3 h-3"/> : <WifiOff className="w-3 h-3"/>} {serverStatus === 'online' ? 'ONLINE' : 'OFFLINE'}
            </div>
-           <p className="text-[10px] text-gray-400 mt-1">v5.0 Enterprise</p>
+           <p className="text-[10px] text-gray-400 mt-1">v5.1 Inventory</p>
         </div>
       </aside>
 
@@ -459,6 +443,43 @@ export default function App() {
                   </select>
                </div>
                <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition-all">Guardar en Base de Datos</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CREAR ITEM INVENTARIO */}
+      {activeModal === 'item' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md animate-in slide-in-from-bottom-8">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="text-lg font-bold">Nuevo Repuesto / Ítem</h3>
+              <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-red-500"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={handleCreateItem} className="p-4 space-y-4">
+               <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Código de Parte (SKU)</label>
+                  <input type="text" required className="w-full border border-gray-300 rounded p-2" value={newItem.part_code} onChange={e => setNewItem({...newItem, part_code: e.target.value})} />
+               </div>
+               <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre del Repuesto</label>
+                  <input type="text" required className="w-full border border-gray-300 rounded p-2" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Stock Inicial</label>
+                    <input type="number" required className="w-full border border-gray-300 rounded p-2" value={newItem.stock_quantity} onChange={e => setNewItem({...newItem, stock_quantity: parseInt(e.target.value)})} />
+                 </div>
+                 <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Stock Mínimo</label>
+                    <input type="number" required className="w-full border border-gray-300 rounded p-2" value={newItem.min_stock_level} onChange={e => setNewItem({...newItem, min_stock_level: parseInt(e.target.value)})} />
+                 </div>
+               </div>
+               <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Ubicación</label>
+                  <input type="text" className="w-full border border-gray-300 rounded p-2" value={newItem.location_in_warehouse} onChange={e => setNewItem({...newItem, location_in_warehouse: e.target.value})} />
+               </div>
+               <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700 shadow-lg transition-all">Guardar en Inventario</button>
             </form>
           </div>
         </div>
