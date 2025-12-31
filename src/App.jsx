@@ -3,47 +3,41 @@ import {
   Wrench, LayoutDashboard, CalendarClock, ClipboardList, Box, 
   Package, CheckSquare, Users, Menu, X, Plus, 
   Search, Activity, Clock, Hammer, DollarSign,
-  Wifi, WifiOff, ChevronDown, Eye, ArrowUp, Edit, Printer
+  Wifi, WifiOff, ChevronDown, Eye, ArrowUp, Edit, Printer, CheckCircle, XCircle
 } from 'lucide-react';
 
-// --- DATOS ESTÁTICOS (Solo Checklist queda pendiente) ---
-const INITIAL_STATIC_DATA = {
-  checklists: [] 
-};
+// --- DATOS ESTÁTICOS (Respaldo) ---
+const INITIAL_STATIC_DATA = { checklists: [] };
 
 export default function App() {
-  // --- ESTADOS DE UI ---
+  // --- ESTADOS UI ---
   const [currentView, setCurrentView] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeModal, setActiveModal] = useState(null); // 'asset', 'item', 'plan', 'user'
+  const [activeModal, setActiveModal] = useState(null); // 'asset', 'item', 'plan', 'user', 'withdraw'
   
   // --- ESTADOS DE DATOS (CONECTADOS A MYSQL) ---
   const [dbAssets, setDbAssets] = useState([]);      
   const [dbWorkOrders, setDbWorkOrders] = useState([]); 
   const [dbInventory, setDbInventory] = useState([]);
   const [dbPlans, setDbPlans] = useState([]); 
-  const [dbStaff, setDbStaff] = useState([]); // <--- NUEVO: PERSONAL
+  const [dbStaff, setDbStaff] = useState([]); 
   
-  const [staticData] = useState(INITIAL_STATIC_DATA);
+  // --- ESTADOS CHECKLIST ---
+  const [selectedWO, setSelectedWO] = useState(null); 
+  const [checklistTasks, setChecklistTasks] = useState([]); 
+
   const [loading, setLoading] = useState(true);
   const [serverStatus, setServerStatus] = useState('checking');
 
   // --- FORMULARIOS ---
-  const [newAsset, setNewAsset] = useState({
-    serial_number: '', fixture_name: '', production_line: 'Línea 1', model_id: 1
-  });
+  const [newAsset, setNewAsset] = useState({ serial_number: '', fixture_name: '', production_line: 'Línea 1', model_id: 1 });
+  const [newItem, setNewItem] = useState({ part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, location_in_warehouse: 'General' });
+  const [newPlan, setNewPlan] = useState({ asset_id: '', activity: '', frequency_type: 'Semanal', next_due_date: '' });
+  const [newUser, setNewUser] = useState({ employee_number: '', full_name: '', email: '', role: 'Tecnico' });
+  const [newTaskDesc, setNewTaskDesc] = useState(''); 
   
-  const [newItem, setNewItem] = useState({
-    part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, location_in_warehouse: 'General'
-  });
-
-  const [newPlan, setNewPlan] = useState({
-    asset_id: '', activity: '', frequency_type: 'Semanal', next_due_date: ''
-  });
-
-  const [newUser, setNewUser] = useState({
-    employee_number: '', full_name: '', email: '', role: 'Tecnico'
-  });
+  // Estado para retiro de material
+  const [withdrawData, setWithdrawData] = useState({ item_id: '', quantity: 1, reason: '' });
 
   // --- API URL ---
   const BASE_URL = 'http://localhost:3000/api';
@@ -59,107 +53,71 @@ export default function App() {
   }, []);
 
   // --- FETCHERS ---
-  const fetchAssets = async () => {
+  const fetchAssets = async () => { try { const res = await fetch(`${BASE_URL}/assets`); if(res.ok) { setDbAssets(await res.json()); setServerStatus('online'); } } catch(e){ console.error(e); setServerStatus('offline'); } };
+  const fetchWorkOrders = async () => { try { const res = await fetch(`${BASE_URL}/work-orders`); if(res.ok) setDbWorkOrders(await res.json()); } catch(e){ console.error(e); } };
+  const fetchInventory = async () => { try { const res = await fetch(`${BASE_URL}/inventory`); if(res.ok) setDbInventory(await res.json()); } catch(e){ console.error(e); } };
+  const fetchPlans = async () => { try { const res = await fetch(`${BASE_URL}/plans`); if(res.ok) setDbPlans(await res.json()); } catch(e){ console.error(e); } };
+  const fetchUsers = async () => { try { const res = await fetch(`${BASE_URL}/users`); if(res.ok) setDbStaff(await res.json()); } catch(e){ console.error(e); } };
+  
+  const fetchChecklist = async (woId) => {
+    if (!woId) return;
     try {
-      const res = await fetch(`${BASE_URL}/assets`);
-      if (res.ok) {
-        setDbAssets(await res.json());
-        setServerStatus('online');
-      }
-    } catch (e) { console.error("Error assets", e); setServerStatus('offline'); }
+      const res = await fetch(`${BASE_URL}/checklists/${woId}`);
+      if(res.ok) setChecklistTasks(await res.json());
+    } catch(e) { console.error("Error checklist", e); }
   };
 
-  const fetchWorkOrders = async () => {
+  // --- HANDLERS GENÉRICOS ---
+  const postData = async (url, data, refreshFn, resetFn, close = true) => {
     try {
-      const res = await fetch(`${BASE_URL}/work-orders`);
-      if (res.ok) setDbWorkOrders(await res.json());
-    } catch (e) { console.error("Error OT", e); }
+      const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
+      if(res.ok) { refreshFn(); if(resetFn) resetFn(); if(close) setActiveModal(null); else alert('Guardado'); } 
+      else { const err = await res.json(); alert(`Error: ${err.error}`); }
+    } catch(e) { alert('Error de conexión'); }
   };
 
-  const fetchInventory = async () => {
-    try {
-      const res = await fetch(`${BASE_URL}/inventory`);
-      if (res.ok) setDbInventory(await res.json());
-    } catch (e) { console.error("Error Inv", e); }
+  // --- HANDLERS ESPECÍFICOS ---
+  const handleCreateAsset = (e) => { e.preventDefault(); postData(`${BASE_URL}/assets`, {...newAsset, model_id:1, station:'Móvil', condition_status:'Activo'}, fetchAssets, () => setNewAsset({serial_number:'', fixture_name:'', production_line:'Línea 1', model_id:1})); };
+  const handleCreateItem = (e) => { e.preventDefault(); postData(`${BASE_URL}/inventory`, newItem, fetchInventory, () => setNewItem({part_code:'', name:'', stock_quantity:0, min_stock_level:5, location_in_warehouse:'General'})); };
+  const handleCreatePlan = (e) => { e.preventDefault(); postData(`${BASE_URL}/plans`, newPlan, fetchPlans, () => setNewPlan({asset_id:'', activity:'', frequency_type:'Semanal', next_due_date:''})); };
+  const handleCreateUser = (e) => { e.preventDefault(); postData(`${BASE_URL}/users`, newUser, fetchUsers, () => setNewUser({employee_number:'', full_name:'', email:'', role:'Tecnico'})); };
+
+  const handleAddTask = async () => {
+    if(!selectedWO || !newTaskDesc) return;
+    await postData(`${BASE_URL}/checklists`, { wo_id: selectedWO, description: newTaskDesc }, () => fetchChecklist(selectedWO), () => setNewTaskDesc(''), false);
   };
 
-  const fetchPlans = async () => {
+  const handleUpdateTask = async (taskId, result) => {
     try {
-      const res = await fetch(`${BASE_URL}/plans`);
-      if (res.ok) setDbPlans(await res.json());
-    } catch (e) { console.error("Error Plans", e); }
+      await fetch(`${BASE_URL}/checklists/${taskId}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ result, comments: '' })
+      });
+      fetchChecklist(selectedWO); 
+    } catch(e) { alert('Error actualizando tarea'); }
   };
 
-  const fetchUsers = async () => {
-    try {
-      const res = await fetch(`${BASE_URL}/users`);
-      if (res.ok) setDbStaff(await res.json());
-    } catch (e) { console.error("Error Users", e); }
-  };
-
-  // --- HANDLERS (CREAR) ---
-  const handleCreateAsset = async (e) => {
+  const handleWithdraw = async (e) => {
     e.preventDefault();
     try {
-      const payload = { ...newAsset, model_id: 1, station: 'Móvil', condition_status: 'Activo' };
-      const res = await fetch(`${BASE_URL}/assets`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      // Usamos el endpoint de ajuste (Step 3 Inventory) con cantidad negativa
+      const res = await fetch(`${BASE_URL}/inventory/${withdrawData.item_id}/adjust`, {
+        method: 'PUT', 
+        headers: {'Content-Type':'application/json'}, 
+        body: JSON.stringify({ adjustment: -withdrawData.quantity }) // Negativo para resta
       });
-      if (res.ok) {
-        setActiveModal(null);
-        setNewAsset({ serial_number: '', fixture_name: '', production_line: 'Línea 1', model_id: 1 });
-        fetchAssets();
-        alert('✅ Activo creado');
-      } else alert('Error al crear activo');
-    } catch (e) { alert('Error de conexión'); }
-  };
-
-  const handleCreateItem = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${BASE_URL}/inventory`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem)
-      });
-      if (res.ok) {
-        setActiveModal(null);
-        setNewItem({ part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, location_in_warehouse: 'General' });
+      if(res.ok) {
         fetchInventory();
-        alert('✅ Ítem creado');
-      } else alert('Error al crear ítem');
-    } catch (e) { alert('Error de conexión'); }
-  };
-
-  const handleCreatePlan = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${BASE_URL}/plans`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newPlan)
-      });
-      if (res.ok) {
         setActiveModal(null);
-        setNewPlan({ asset_id: '', activity: '', frequency_type: 'Semanal', next_due_date: '' });
-        fetchPlans();
-        alert('✅ Plan programado');
-      } else alert('Error al crear plan');
-    } catch (e) { alert('Error de conexión'); }
-  };
-
-  const handleCreateUser = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${BASE_URL}/users`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser)
-      });
-      if (res.ok) {
-        setActiveModal(null);
-        setNewUser({ employee_number: '', full_name: '', email: '', role: 'Tecnico' });
-        fetchUsers();
-        alert('✅ Usuario registrado');
+        alert('✅ Retiro registrado');
       } else {
-        const err = await res.json();
-        alert(`❌ Error: ${err.error}`);
+        alert('Error al retirar');
       }
-    } catch (e) { alert('Error de conexión'); }
+    } catch(e) { alert('Error de conexión'); }
+  };
+
+  // Función simulada de imprimir
+  const printOT = (ot) => {
+    alert(`🖨️ Imprimiendo Orden de Trabajo #${ot.id}\nActivo: ${ot.assetName}\nTarea: ${ot.title}`);
   };
 
   // --- KPIS ---
@@ -175,19 +133,48 @@ export default function App() {
   const DashboardView = () => (
     <div className="space-y-6 pb-10 animate-in fade-in duration-500">
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-800">Dashboard General</h2>
-        <div className="flex items-center gap-2">
-           <span className={`text-xs font-bold px-3 py-1 rounded-full border flex items-center ${serverStatus === 'online' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-             {serverStatus === 'online' ? <Wifi className="w-3 h-3 mr-1"/> : <WifiOff className="w-3 h-3 mr-1"/>}
-             {serverStatus === 'online' ? 'Conectado a MySQL' : 'Sin Conexión'}
-           </span>
-        </div>
+        <h2 className="text-xl font-bold text-gray-800">Dashboard</h2>
+        <span className={`text-xs font-bold px-3 py-1 rounded-full border flex items-center ${serverStatus === 'online' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+             {serverStatus === 'online' ? <Wifi className="w-3 h-3 mr-1"/> : <WifiOff className="w-3 h-3 mr-1"/>} {serverStatus === 'online' ? 'Online' : 'Offline'}
+        </span>
       </div>
+      
+      {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <KpiCard title="Disponibilidad" value="98.5%" icon={<Activity />} color="blue" sub="Tiempo Operativo" />
         <KpiCard title="Cumplimiento" value={`${completionRate}%`} icon={<CheckSquare />} color="green" sub={`${kpis.done} Ejecutadas`} />
-        <KpiCard title="Pendientes" value={kpis.pending} icon={<Clock />} color="orange" sub="Backlog Actual" />
-        <KpiCard title="Total Histórico" value={kpis.total} icon={<ClipboardList />} color="purple" sub="Órdenes Creadas" />
+        <KpiCard title="Pendientes" value={kpis.pending} icon={<Clock />} color="orange" sub="Backlog" />
+        <KpiCard title="Total" value={kpis.total} icon={<ClipboardList />} color="purple" sub="Órdenes" />
+      </div>
+
+      {/* CHARTS (RESTAURADOS) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 col-span-1">
+           <h3 className="text-sm font-bold text-gray-700 mb-4">MP vs Correctivo</h3>
+           <div className="flex items-end justify-center gap-4 h-48 border-b border-gray-100 pb-2">
+              <div className="w-16 bg-blue-500 rounded-t-lg relative group transition-all hover:bg-blue-600" style={{height: '70%'}}>
+                 <span className="absolute -top-6 left-0 w-full text-center text-xs font-bold text-blue-600">70%</span>
+                 <p className="absolute bottom-2 w-full text-center text-white text-xs">Prev</p>
+              </div>
+              <div className="w-16 bg-red-500 rounded-t-lg relative group transition-all hover:bg-red-600" style={{height: '30%'}}>
+                 <span className="absolute -top-6 left-0 w-full text-center text-xs font-bold text-red-600">30%</span>
+                 <p className="absolute bottom-2 w-full text-center text-white text-xs">Corr</p>
+              </div>
+           </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 col-span-1 lg:col-span-2">
+           <h3 className="text-sm font-bold text-gray-700 mb-4">Tendencia Anual</h3>
+           <div className="flex items-end justify-between gap-2 h-48 border-b border-gray-100 pb-2">
+              {[40, 60, 45, 80, 55, 90, 65, 75, 50, 85, 95, 70].map((h, i) => (
+                <div key={i} className="w-full bg-emerald-400/80 hover:bg-emerald-500 rounded-t-sm transition-all relative group" style={{height: `${h}%`}}>
+                </div>
+              ))}
+           </div>
+           <div className="flex justify-between text-[10px] text-gray-400 mt-2 uppercase font-bold">
+              <span>Ene</span><span>Feb</span><span>Mar</span><span>Abr</span><span>May</span><span>Jun</span>
+              <span>Jul</span><span>Ago</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dic</span>
+           </div>
+        </div>
       </div>
     </div>
   );
@@ -196,20 +183,15 @@ export default function App() {
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex justify-between items-center bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
         <h2 className="text-xl font-bold text-gray-800">Activos</h2>
-        <button onClick={() => setActiveModal('asset')} className="bg-green-600 text-white px-4 py-2 rounded-md shadow hover:bg-green-700 flex items-center">
-          <Plus className="w-4 h-4 mr-2" /> Nuevo
-        </button>
+        <button onClick={() => setActiveModal('asset')} className="bg-green-600 text-white px-4 py-2 rounded-md shadow flex items-center"><Plus className="w-4 h-4 mr-2"/> Nuevo</button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {dbAssets.map(a => (
-           <div key={a.asset_id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-all">
-              <div className="flex justify-between items-start mb-2">
-                <div className="bg-blue-50 p-2 rounded-full"><Box className="w-5 h-5 text-blue-600" /></div>
-                <span className="text-[10px] font-bold px-2 py-1 rounded border bg-green-50 text-green-700 border-green-200">{a.condition_status}</span>
-              </div>
+           <div key={a.asset_id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 relative hover:shadow-md">
+              <div className="flex justify-between mb-2"><div className="bg-blue-50 p-2 rounded-full"><Box className="w-5 h-5 text-blue-600"/></div><span className="text-[10px] font-bold px-2 py-1 rounded border bg-green-50 text-green-700">{a.condition_status}</span></div>
               <h3 className="text-sm font-bold text-gray-900">{a.fixture_name}</h3>
               <p className="text-xs text-gray-500 font-mono">SN: {a.serial_number}</p>
-              <p className="text-xs text-blue-600 mt-1">{a.model_name}</p>
+              <p className="text-xs text-blue-600 mt-1">{a.model_name || 'Genérico'}</p>
            </div>
         ))}
       </div>
@@ -220,12 +202,18 @@ export default function App() {
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 w-full overflow-hidden animate-in fade-in duration-300">
       <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
         <h2 className="text-lg font-semibold text-gray-800">Órdenes de Trabajo</h2>
-        <button className="text-xs bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 font-bold shadow-sm">Crear OT</button>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs text-left">
           <thead className="bg-gray-100 text-gray-600 uppercase font-bold">
-            <tr><th className="px-4 py-3">ID</th><th className="px-4 py-3">Tarea</th><th className="px-4 py-3">Activo</th><th className="px-4 py-3">Prioridad</th><th className="px-4 py-3">Estado</th></tr>
+            <tr>
+              <th className="px-4 py-3">ID</th>
+              <th className="px-4 py-3">Tarea</th>
+              <th className="px-4 py-3">Activo</th>
+              <th className="px-4 py-3">Prioridad</th>
+              <th className="px-4 py-3">Estado</th>
+              <th className="px-4 py-3 text-center">Acciones</th>
+            </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {dbWorkOrders.map((ot) => (
@@ -233,8 +221,11 @@ export default function App() {
                 <td className="px-4 py-4 font-bold text-blue-600">#{ot.id}</td>
                 <td className="px-4 py-4 font-medium">{ot.title}</td>
                 <td className="px-4 py-4 text-gray-500">{ot.assetName}</td>
-                <td className="px-4 py-4"><span className={`px-2 py-1 rounded font-bold ${ot.priority === 'Alta' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>{ot.priority}</span></td>
-                <td className="px-4 py-4"><span className={`px-2 py-1 rounded font-bold ${ot.status === 'Pendiente' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>{ot.status}</span></td>
+                <td className="px-4 py-4"><span className={`px-2 py-1 rounded font-bold ${ot.priority==='Alta'?'bg-red-100 text-red-800':'bg-green-100 text-green-800'}`}>{ot.priority}</span></td>
+                <td className="px-4 py-4"><span className="px-2 py-1 rounded font-bold bg-yellow-100 text-yellow-800">{ot.status}</span></td>
+                <td className="px-4 py-4 text-center">
+                  <button onClick={() => printOT(ot)} className="text-gray-500 hover:text-blue-600" title="Imprimir"><Printer className="w-4 h-4"/></button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -247,20 +238,15 @@ export default function App() {
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 fade-in animate-in duration-300">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-lg font-bold">Inventario</h2>
-        <button onClick={() => setActiveModal('item')} className="bg-blue-600 text-white px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 flex items-center">
-          <Plus className="w-4 h-4 mr-2" /> Nuevo Ítem
-        </button>
+        <button onClick={() => setActiveModal('item')} className="bg-blue-600 text-white px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 flex items-center"><Plus className="w-4 h-4 mr-2"/> Nuevo</button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {dbInventory.map(i => (
-          <div key={i.item_id || i.id} className="border border-gray-200 p-4 rounded-lg hover:shadow-md bg-white">
-            <div className="flex justify-between font-bold text-gray-800 mb-1">
-              <span>{i.name}</span>
-              <span className="text-xs bg-gray-100 p-1 rounded font-mono text-gray-500">{i.part_code}</span>
-            </div>
-            <div className="flex justify-between items-center text-sm font-bold mt-2">
-              <span className="text-red-500 text-xs">Min: {i.min_stock_level}</span>
-              <span className="bg-green-50 text-green-600 px-2 py-0.5 rounded">Stock: {i.stock_quantity}</span>
+          <div key={i.item_id} className="border border-gray-200 p-4 rounded-lg bg-white relative">
+            <div className="flex justify-between font-bold text-gray-800 mb-1"><span>{i.name}</span><span className="text-xs bg-gray-100 p-1 rounded font-mono text-gray-500">{i.part_code}</span></div>
+            <div className="flex justify-between items-center text-sm font-bold mt-2 mb-4"><span className="text-red-500 text-xs">Min: {i.min_stock_level}</span><span className="bg-green-50 text-green-600 px-2 py-0.5 rounded">Stock: {i.stock_quantity}</span></div>
+            <div className="border-t pt-2 mt-2">
+               <button onClick={() => { setWithdrawData({...withdrawData, item_id: i.item_id}); setActiveModal('withdraw'); }} className="w-full text-center text-xs font-bold text-orange-600 border border-orange-200 bg-orange-50 py-1 rounded hover:bg-orange-100">Retirar Material</button>
             </div>
           </div>
         ))}
@@ -271,73 +257,75 @@ export default function App() {
   const PlanningView = () => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 fade-in w-full overflow-hidden animate-in duration-300">
       <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-800">Programa de Mantenimiento</h2>
-        <button onClick={() => setActiveModal('plan')} className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700 flex items-center shadow-sm">
-          <Plus className="w-4 h-4 mr-2" /> Programar Tarea
-        </button>
+        <h2 className="text-lg font-semibold text-gray-800">Planificación</h2>
+        <button onClick={() => setActiveModal('plan')} className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700 flex items-center shadow-sm"><Plus className="w-4 h-4 mr-2"/> Programar</button>
       </div>
-      {dbPlans.length === 0 ? (
-        <div className="p-8 text-center text-gray-400">
-           <CalendarClock className="w-12 h-12 mx-auto mb-2 opacity-20"/>
-           <p>No hay planes registrados.</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-left">
-            <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold">
-              <tr><th className="px-6 py-3">Activo</th><th className="px-6 py-3">Actividad</th><th className="px-6 py-3">Frecuencia</th><th className="px-6 py-3">Próxima Fecha</th><th className="px-6 py-3">Acción</th></tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {dbPlans.map(plan => (
-                <tr key={plan.plan_id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-xs text-blue-600">{plan.assetName}</div>
-                    <div className="text-[10px] text-gray-500 font-mono">{plan.assetId}</div>
-                  </td>
-                  <td className="px-6 py-4 text-gray-700 font-medium">{plan.activity}</td>
-                  <td className="px-6 py-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs text-gray-600 font-bold">{plan.frequency_type}</span></td>
-                  <td className="px-6 py-4 text-gray-800 font-bold">{new Date(plan.next_due_date).toLocaleDateString()}</td>
-                  <td className="px-6 py-4"><button className="text-blue-600 text-xs hover:underline font-bold">Generar OT</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm text-left">
+          <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold"><tr><th className="px-6 py-3">Activo</th><th className="px-6 py-3">Actividad</th><th className="px-6 py-3">Frecuencia</th><th className="px-6 py-3">Fecha</th></tr></thead>
+          <tbody className="divide-y divide-gray-100">
+            {dbPlans.map(p => (
+              <tr key={p.plan_id} className="hover:bg-gray-50">
+                <td className="px-6 py-4"><div className="font-bold text-xs text-blue-600">{p.assetName}</div></td>
+                <td className="px-6 py-4 text-gray-700 font-medium">{p.activity}</td>
+                <td className="px-6 py-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{p.frequency_type}</span></td>
+                <td className="px-6 py-4 text-gray-800 font-bold">{new Date(p.next_due_date).toLocaleDateString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 
-  // --- VISTA PERSONAL (NUEVA: CONECTADA A DB) ---
   const TeamView = () => (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 fade-in animate-in duration-300">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-lg font-bold">Personal Técnico</h2>
-        <button onClick={() => setActiveModal('user')} className="bg-blue-600 text-white px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 flex items-center">
-          <Plus className="w-4 h-4 mr-2" /> Agregar Personal
-        </button>
+      <div className="flex justify-between items-center mb-6"><h2 className="text-lg font-bold">Personal</h2><button onClick={() => setActiveModal('user')} className="bg-blue-600 text-white px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 flex items-center"><Plus className="w-4 h-4 mr-2"/> Agregar</button></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {dbStaff.map(s => (
+          <div key={s.user_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
+            <div className="flex items-center"><div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mr-3">{s.full_name.charAt(0)}</div><div><p className="font-bold text-gray-900">{s.full_name}</p><p className="text-xs text-gray-500">{s.role}</p></div></div>
+            <span className="text-xs font-mono text-gray-400 bg-white border px-2 py-1 rounded">{s.employee_number}</span>
+          </div>
+        ))}
       </div>
-      {dbStaff.length === 0 ? (
-        <div className="text-center py-10 text-gray-400 bg-gray-50 rounded border border-dashed"><Users className="mx-auto h-8 w-8 mb-2"/><p>No hay personal registrado.</p></div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {dbStaff.map(s => (
-            <div key={s.user_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:border-blue-200 transition-colors">
-              <div className="flex items-center">
-                <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mr-3">{s.full_name.charAt(0)}</div>
-                <div><p className="font-bold text-gray-900">{s.full_name}</p><p className="text-xs text-gray-500">{s.role}</p></div>
-              </div>
-              <span className="text-xs font-mono text-gray-400 bg-white border px-2 py-1 rounded">{s.employee_number}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 
   const ChecklistView = () => (
-    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 fade-in animate-in duration-300 text-center py-10">
-        <CheckSquare className="mx-auto h-12 w-12 text-gray-300 mb-2"/>
-        <p className="text-gray-500">Módulo de Checklist (Próximamente)</p>
+    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 fade-in animate-in duration-300">
+        <h2 className="text-xl font-bold mb-4 flex items-center"><CheckSquare className="mr-2 text-blue-600" /> Bitácora / Checklist</h2>
+        <div className="mb-6">
+           <label className="block text-sm font-bold text-gray-700 mb-2">Seleccionar Orden de Trabajo:</label>
+           <select className="border p-2 rounded w-full md:w-1/2 bg-gray-50" onChange={(e) => { setSelectedWO(e.target.value); fetchChecklist(e.target.value); }} value={selectedWO || ''}>
+              <option value="">-- Seleccionar --</option>
+              {dbWorkOrders.map(ot => <option key={ot.id} value={ot.id}>#{ot.id} - {ot.title}</option>)}
+           </select>
+        </div>
+        {selectedWO ? (
+          <div className="space-y-4">
+             <div className="flex gap-2">
+                <input type="text" placeholder="Escribe una tarea de inspección..." className="border p-2 rounded w-full" value={newTaskDesc} onChange={e=>setNewTaskDesc(e.target.value)} />
+                <button onClick={handleAddTask} className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700 font-bold">Agregar</button>
+             </div>
+             {checklistTasks.length === 0 ? <p className="text-gray-400 text-center py-8 border-2 border-dashed rounded">No hay puntos de inspección registrados.</p> : (
+               <div className="border rounded-lg overflow-hidden">
+                 {checklistTasks.map(task => (
+                   <div key={task.task_id} className="flex flex-col md:flex-row justify-between items-center p-3 border-b hover:bg-gray-50 bg-white gap-2">
+                      <span className="font-medium text-gray-700 w-full">{task.description}</span>
+                      <div className="flex gap-2 w-full md:w-auto justify-end">
+                         <button onClick={()=>handleUpdateTask(task.task_id, 'OK')} className={`px-3 py-1 rounded text-xs font-bold transition-colors ${task.result==='OK'?'bg-green-600 text-white':'bg-gray-100 text-gray-600 hover:bg-green-100'}`}>OK</button>
+                         <button onClick={()=>handleUpdateTask(task.task_id, 'Fallo')} className={`px-3 py-1 rounded text-xs font-bold transition-colors ${task.result==='Fallo'?'bg-red-600 text-white':'bg-gray-100 text-gray-600 hover:bg-red-100'}`}>Fallo</button>
+                         <button onClick={()=>handleUpdateTask(task.task_id, 'N/A')} className={`px-3 py-1 rounded text-xs font-bold transition-colors ${task.result==='N/A'?'bg-gray-600 text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>N/A</button>
+                      </div>
+                   </div>
+                 ))}
+               </div>
+             )}
+          </div>
+        ) : (
+          <div className="text-center py-12 text-gray-400 border-2 border-dashed rounded-xl bg-gray-50"><ArrowUp className="mx-auto h-8 w-8 mb-2 opacity-50"/><p>Seleccione una Orden para iniciar la inspección.</p></div>
+        )}
     </div>
   );
 
@@ -346,8 +334,7 @@ export default function App() {
       {/* SIDEBAR */}
       <aside className={`bg-white w-64 flex-shrink-0 border-r border-gray-200 flex flex-col transition-transform duration-300 absolute z-20 h-full md:relative ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="h-16 flex items-center px-6 border-b border-gray-200">
-          <Wrench className="text-blue-600 mr-2 h-7 w-7" />
-          <span className="text-xl font-bold text-gray-900">PME CMMS</span>
+          <Wrench className="text-blue-600 mr-2 h-7 w-7" /><span className="text-xl font-bold text-gray-900">PME CMMS</span>
           <button onClick={() => setIsSidebarOpen(false)} className="md:hidden ml-auto text-gray-500"><X className="w-6 h-6"/></button>
         </div>
         <nav className="flex-1 overflow-y-auto py-4 space-y-1">
@@ -359,7 +346,7 @@ export default function App() {
           <NavButton icon={<CheckSquare />} label="Checklist" view="checklist" current={currentView} set={setCurrentView} />
           <NavButton icon={<Users />} label="Personal" view="team" current={currentView} set={setCurrentView} />
         </nav>
-        <div className="p-4 border-t border-gray-200 bg-gray-50 text-xs text-gray-400">v7.0 Users</div>
+        <div className="p-4 border-t border-gray-200 bg-gray-50 text-xs text-gray-400">v9.5 Ultimate</div>
       </aside>
 
       {/* MAIN CONTENT */}
@@ -386,102 +373,23 @@ export default function App() {
         </main>
       </div>
 
-      {/* MODAL PLANIFICACIÓN */}
-      {activeModal === 'plan' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="text-lg font-bold">Programar Mantenimiento</h3>
-              <button onClick={() => setActiveModal(null)}><X className="w-5 h-5 text-gray-500"/></button>
-            </div>
-            <form onSubmit={handleCreatePlan} className="p-4 space-y-4">
-               <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Activo</label>
-                  <select className="w-full border border-gray-300 rounded p-2" required value={newPlan.asset_id} onChange={e => setNewPlan({...newPlan, asset_id: e.target.value})}>
-                     <option value="">Seleccione equipo...</option>
-                     {dbAssets.map(a => <option key={a.asset_id} value={a.asset_id}>{a.fixture_name}</option>)}
-                  </select>
-               </div>
-               <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Actividad</label>
-                  <input type="text" className="w-full border border-gray-300 rounded p-2" placeholder="Ej. Limpieza General" required value={newPlan.activity} onChange={e => setNewPlan({...newPlan, activity: e.target.value})} />
-               </div>
-               <div className="grid grid-cols-2 gap-4">
-                 <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Frecuencia</label>
-                    <select className="w-full border border-gray-300 rounded p-2" value={newPlan.frequency_type} onChange={e => setNewPlan({...newPlan, frequency_type: e.target.value})}>
-                       <option>Diario</option><option>Semanal</option><option>Quincenal</option><option>Mensual</option>
-                    </select>
-                 </div>
-                 <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Inicio</label>
-                    <input type="date" required className="w-full border border-gray-300 rounded p-2" value={newPlan.next_due_date} onChange={e => setNewPlan({...newPlan, next_due_date: e.target.value})} />
-                 </div>
-               </div>
-               <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700">Guardar Plan</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL USUARIO (NUEVO) */}
-      {activeModal === 'user' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="text-lg font-bold">Nuevo Personal</h3>
-              <button onClick={() => setActiveModal(null)}><X className="w-5 h-5 text-gray-500"/></button>
-            </div>
-            <form onSubmit={handleCreateUser} className="p-4 space-y-4">
-               <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Número Empleado</label>
-                  <input type="text" required className="w-full border border-gray-300 rounded p-2" value={newUser.employee_number} onChange={e => setNewUser({...newUser, employee_number: e.target.value})} />
-               </div>
-               <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre Completo</label>
-                  <input type="text" required className="w-full border border-gray-300 rounded p-2" value={newUser.full_name} onChange={e => setNewUser({...newUser, full_name: e.target.value})} />
-               </div>
-               <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Rol</label>
-                  <select className="w-full border border-gray-300 rounded p-2" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
-                     <option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option><option>Administrador</option>
-                  </select>
-               </div>
-               <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700">Registrar Usuario</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODALES EXISTENTES (ACTIVO, ITEM) */}
-      {activeModal === 'asset' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="text-lg font-bold">Nuevo Activo</h3>
-              <button onClick={() => setActiveModal(null)}><X className="w-5 h-5 text-gray-500"/></button>
-            </div>
-            <form onSubmit={handleCreateAsset} className="p-4 space-y-4">
-               <input type="text" placeholder="Nombre" required className="w-full border p-2 rounded" value={newAsset.fixture_name} onChange={e => setNewAsset({...newAsset, fixture_name: e.target.value})} />
-               <input type="text" placeholder="Serial" required className="w-full border p-2 rounded" value={newAsset.serial_number} onChange={e => setNewAsset({...newAsset, serial_number: e.target.value})} />
-               <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-bold">Guardar</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {activeModal === 'item' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="text-lg font-bold">Nuevo Ítem</h3>
-              <button onClick={() => setActiveModal(null)}><X className="w-5 h-5 text-gray-500"/></button>
-            </div>
-            <form onSubmit={handleCreateItem} className="p-4 space-y-4">
-               <input type="text" placeholder="Código (SKU)" required className="w-full border p-2 rounded" value={newItem.part_code} onChange={e => setNewItem({...newItem, part_code: e.target.value})} />
-               <input type="text" placeholder="Nombre" required className="w-full border p-2 rounded" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
-               <input type="number" placeholder="Stock Inicial" required className="w-full border p-2 rounded" value={newItem.stock_quantity} onChange={e => setNewItem({...newItem, stock_quantity: parseInt(e.target.value)})} />
-               <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-bold">Guardar</button>
+      {/* MODALES */}
+      {activeModal === 'asset' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="bg-white rounded p-4 w-96"><h3 className="font-bold mb-4">Nuevo Activo</h3><form onSubmit={handleCreateAsset} className="space-y-4"><input className="border w-full p-2" placeholder="Nombre" value={newAsset.fixture_name} onChange={e=>setNewAsset({...newAsset, fixture_name:e.target.value})}/><input className="border w-full p-2" placeholder="Serial" value={newAsset.serial_number} onChange={e=>setNewAsset({...newAsset, serial_number:e.target.value})}/><button className="bg-blue-600 text-white w-full py-2">Guardar</button><button type="button" onClick={()=>setActiveModal(null)} className="w-full text-gray-500 py-1">Cancelar</button></form></div></div>}
+      {activeModal === 'item' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="bg-white rounded p-4 w-96"><h3 className="font-bold mb-4">Nuevo Ítem</h3><form onSubmit={handleCreateItem} className="space-y-4"><input className="border w-full p-2" placeholder="SKU" value={newItem.part_code} onChange={e=>setNewItem({...newItem, part_code:e.target.value})}/><input className="border w-full p-2" placeholder="Nombre" value={newItem.name} onChange={e=>setNewItem({...newItem, name:e.target.value})}/><input className="border w-full p-2" type="number" placeholder="Stock" value={newItem.stock_quantity} onChange={e=>setNewItem({...newItem, stock_quantity:e.target.value})}/><button className="bg-blue-600 text-white w-full py-2">Guardar</button><button type="button" onClick={()=>setActiveModal(null)} className="w-full text-gray-500 py-1">Cancelar</button></form></div></div>}
+      {activeModal === 'plan' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="bg-white rounded p-4 w-96"><h3 className="font-bold mb-4">Nuevo Plan</h3><form onSubmit={handleCreatePlan} className="space-y-4"><select className="border w-full p-2" value={newPlan.asset_id} onChange={e=>setNewPlan({...newPlan, asset_id:e.target.value})}><option value="">Activo...</option>{dbAssets.map(a=><option key={a.asset_id} value={a.asset_id}>{a.fixture_name}</option>)}</select><input className="border w-full p-2" placeholder="Actividad" value={newPlan.activity} onChange={e=>setNewPlan({...newPlan, activity:e.target.value})}/><input type="date" className="border w-full p-2" value={newPlan.next_due_date} onChange={e=>setNewPlan({...newPlan, next_due_date:e.target.value})}/><button className="bg-blue-600 text-white w-full py-2">Guardar</button><button type="button" onClick={()=>setActiveModal(null)} className="w-full text-gray-500 py-1">Cancelar</button></form></div></div>}
+      {activeModal === 'user' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="bg-white rounded p-4 w-96"><h3 className="font-bold mb-4">Nuevo Usuario</h3><form onSubmit={handleCreateUser} className="space-y-4"><input className="border w-full p-2" placeholder="# Empleado" value={newUser.employee_number} onChange={e=>setNewUser({...newUser, employee_number:e.target.value})}/><input className="border w-full p-2" placeholder="Nombre" value={newUser.full_name} onChange={e=>setNewUser({...newUser, full_name:e.target.value})}/><button className="bg-blue-600 text-white w-full py-2">Guardar</button><button type="button" onClick={()=>setActiveModal(null)} className="w-full text-gray-500 py-1">Cancelar</button></form></div></div>}
+      
+      {/* MODAL RETIRAR STOCK (NUEVO) */}
+      {activeModal === 'withdraw' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="bg-white rounded p-4 w-96">
+            <h3 className="font-bold mb-4">Retirar Material</h3>
+            <form onSubmit={handleWithdraw} className="space-y-4">
+               <div><label className="text-xs">ID Ítem</label><input disabled className="border w-full p-2 bg-gray-100" value={withdrawData.item_id}/></div>
+               <div><label className="text-xs">Cantidad</label><input type="number" min="1" className="border w-full p-2" value={withdrawData.quantity} onChange={e=>setWithdrawData({...withdrawData, quantity:e.target.value})}/></div>
+               <div><label className="text-xs">Motivo</label><input className="border w-full p-2" placeholder="Ej. OT-1001" value={withdrawData.reason} onChange={e=>setWithdrawData({...withdrawData, reason:e.target.value})}/></div>
+               <button className="bg-orange-600 text-white w-full py-2 rounded font-bold hover:bg-orange-700">Confirmar Retiro</button>
+               <button type="button" onClick={()=>setActiveModal(null)} className="w-full text-gray-500 py-1">Cancelar</button>
             </form>
           </div>
         </div>
@@ -490,7 +398,6 @@ export default function App() {
   );
 }
 
-// --- COMPONENTES UI REUTILIZABLES ---
 const NavButton = ({ icon, label, view, current, set }) => (
   <button onClick={() => set(view)} className={`w-full flex items-center px-6 py-3 text-sm font-medium transition-colors border-l-4 ${current === view ? 'text-blue-700 bg-blue-50 border-blue-600' : 'text-gray-600 hover:bg-gray-50 border-transparent hover:text-gray-900'}`}>
     <span className="mr-3">{icon}</span>{label}
