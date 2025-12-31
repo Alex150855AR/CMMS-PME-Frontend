@@ -6,14 +6,8 @@ import {
   Wifi, WifiOff, ChevronDown, Eye, ArrowUp, Edit, Printer
 } from 'lucide-react';
 
-// --- DATOS ESTÁTICOS (Respaldo visual para módulos sin Backend) ---
+// --- DATOS ESTÁTICOS (Solo Checklist queda pendiente) ---
 const INITIAL_STATIC_DATA = {
-  staff: [
-      { id: 'S-01', name: 'Juan Pérez', role: 'Técnico Senior' },
-      { id: 'S-02', name: 'Maria Garcia', role: 'Técnico Mecánico' },
-      { id: 'S-03', name: 'Carlos Lopez', role: 'Supervisor' },
-      { id: 'S-04', name: 'Ana Diaz', role: 'Electricista' }
-  ],
   checklists: [] 
 };
 
@@ -21,13 +15,14 @@ export default function App() {
   // --- ESTADOS DE UI ---
   const [currentView, setCurrentView] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeModal, setActiveModal] = useState(null); // 'asset', 'item', 'plan'
+  const [activeModal, setActiveModal] = useState(null); // 'asset', 'item', 'plan', 'user'
   
   // --- ESTADOS DE DATOS (CONECTADOS A MYSQL) ---
   const [dbAssets, setDbAssets] = useState([]);      
   const [dbWorkOrders, setDbWorkOrders] = useState([]); 
   const [dbInventory, setDbInventory] = useState([]);
-  const [dbPlans, setDbPlans] = useState([]); // <--- NUEVO: PLANES
+  const [dbPlans, setDbPlans] = useState([]); 
+  const [dbStaff, setDbStaff] = useState([]); // <--- NUEVO: PERSONAL
   
   const [staticData] = useState(INITIAL_STATIC_DATA);
   const [loading, setLoading] = useState(true);
@@ -46,6 +41,10 @@ export default function App() {
     asset_id: '', activity: '', frequency_type: 'Semanal', next_due_date: ''
   });
 
+  const [newUser, setNewUser] = useState({
+    employee_number: '', full_name: '', email: '', role: 'Tecnico'
+  });
+
   // --- API URL ---
   const BASE_URL = 'http://localhost:3000/api';
 
@@ -53,7 +52,7 @@ export default function App() {
   useEffect(() => {
     const initData = async () => {
       setLoading(true);
-      await Promise.all([fetchAssets(), fetchWorkOrders(), fetchInventory(), fetchPlans()]);
+      await Promise.all([fetchAssets(), fetchWorkOrders(), fetchInventory(), fetchPlans(), fetchUsers()]);
       setLoading(false);
     };
     initData();
@@ -89,6 +88,13 @@ export default function App() {
       const res = await fetch(`${BASE_URL}/plans`);
       if (res.ok) setDbPlans(await res.json());
     } catch (e) { console.error("Error Plans", e); }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/users`);
+      if (res.ok) setDbStaff(await res.json());
+    } catch (e) { console.error("Error Users", e); }
   };
 
   // --- HANDLERS (CREAR) ---
@@ -135,6 +141,24 @@ export default function App() {
         fetchPlans();
         alert('✅ Plan programado');
       } else alert('Error al crear plan');
+    } catch (e) { alert('Error de conexión'); }
+  };
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${BASE_URL}/users`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newUser)
+      });
+      if (res.ok) {
+        setActiveModal(null);
+        setNewUser({ employee_number: '', full_name: '', email: '', role: 'Tecnico' });
+        fetchUsers();
+        alert('✅ Usuario registrado');
+      } else {
+        const err = await res.json();
+        alert(`❌ Error: ${err.error}`);
+      }
     } catch (e) { alert('Error de conexión'); }
   };
 
@@ -244,7 +268,6 @@ export default function App() {
     </div>
   );
 
-  // --- VISTA PLANIFICACIÓN (NUEVA) ---
   const PlanningView = () => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 fade-in w-full overflow-hidden animate-in duration-300">
       <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
@@ -284,20 +307,30 @@ export default function App() {
     </div>
   );
 
+  // --- VISTA PERSONAL (NUEVA: CONECTADA A DB) ---
   const TeamView = () => (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 fade-in animate-in duration-300">
-      <h2 className="text-lg font-bold mb-4">Personal Técnico</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {staticData.staff.map(s => (
-          <div key={s.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100">
-            <div className="flex items-center">
-              <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mr-3">{s.name.charAt(0)}</div>
-              <div><p className="font-bold text-gray-900">{s.name}</p><p className="text-xs text-gray-500">{s.role}</p></div>
-            </div>
-            <span className="text-xs font-mono text-gray-400 bg-white border px-2 py-1 rounded">{s.id}</span>
-          </div>
-        ))}
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-lg font-bold">Personal Técnico</h2>
+        <button onClick={() => setActiveModal('user')} className="bg-blue-600 text-white px-4 py-2 rounded-md shadow-sm hover:bg-blue-700 flex items-center">
+          <Plus className="w-4 h-4 mr-2" /> Agregar Personal
+        </button>
       </div>
+      {dbStaff.length === 0 ? (
+        <div className="text-center py-10 text-gray-400 bg-gray-50 rounded border border-dashed"><Users className="mx-auto h-8 w-8 mb-2"/><p>No hay personal registrado.</p></div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {dbStaff.map(s => (
+            <div key={s.user_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 hover:border-blue-200 transition-colors">
+              <div className="flex items-center">
+                <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mr-3">{s.full_name.charAt(0)}</div>
+                <div><p className="font-bold text-gray-900">{s.full_name}</p><p className="text-xs text-gray-500">{s.role}</p></div>
+              </div>
+              <span className="text-xs font-mono text-gray-400 bg-white border px-2 py-1 rounded">{s.employee_number}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -326,7 +359,7 @@ export default function App() {
           <NavButton icon={<CheckSquare />} label="Checklist" view="checklist" current={currentView} set={setCurrentView} />
           <NavButton icon={<Users />} label="Personal" view="team" current={currentView} set={setCurrentView} />
         </nav>
-        <div className="p-4 border-t border-gray-200 bg-gray-50 text-xs text-gray-400">v6.0 Full Stack</div>
+        <div className="p-4 border-t border-gray-200 bg-gray-50 text-xs text-gray-400">v7.0 Users</div>
       </aside>
 
       {/* MAIN CONTENT */}
@@ -353,7 +386,7 @@ export default function App() {
         </main>
       </div>
 
-      {/* MODAL PLANIFICACIÓN (NUEVO) */}
+      {/* MODAL PLANIFICACIÓN */}
       {activeModal === 'plan' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
@@ -391,7 +424,36 @@ export default function App() {
         </div>
       )}
 
-      {/* OTROS MODALES (ACTIVO, ITEM) */}
+      {/* MODAL USUARIO (NUEVO) */}
+      {activeModal === 'user' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="text-lg font-bold">Nuevo Personal</h3>
+              <button onClick={() => setActiveModal(null)}><X className="w-5 h-5 text-gray-500"/></button>
+            </div>
+            <form onSubmit={handleCreateUser} className="p-4 space-y-4">
+               <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Número Empleado</label>
+                  <input type="text" required className="w-full border border-gray-300 rounded p-2" value={newUser.employee_number} onChange={e => setNewUser({...newUser, employee_number: e.target.value})} />
+               </div>
+               <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre Completo</label>
+                  <input type="text" required className="w-full border border-gray-300 rounded p-2" value={newUser.full_name} onChange={e => setNewUser({...newUser, full_name: e.target.value})} />
+               </div>
+               <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Rol</label>
+                  <select className="w-full border border-gray-300 rounded p-2" value={newUser.role} onChange={e => setNewUser({...newUser, role: e.target.value})}>
+                     <option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option><option>Administrador</option>
+                  </select>
+               </div>
+               <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-bold hover:bg-blue-700">Registrar Usuario</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODALES EXISTENTES (ACTIVO, ITEM) */}
       {activeModal === 'asset' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
