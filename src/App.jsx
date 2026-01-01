@@ -5,10 +5,8 @@ import {
   Search, Activity, Clock, Hammer, DollarSign,
   Wifi, WifiOff, Edit, Printer, FileText, Filter, Trash2, Eye,
   CheckCircle, AlertCircle, FilePlus, UserPlus, Image as ImageIcon,
-  BookOpen, ChevronRight, HardHat, Info, Upload, File as FileIcon
+  BookOpen, ChevronRight, HardHat, Info, Upload, File as FileIcon, Phone
 } from 'lucide-react';
-
-// NOTA: jsPDF se carga dinámicamente en useEffect
 
 export default function App() {
   // --- ESTADOS UI ---
@@ -42,7 +40,8 @@ export default function App() {
     fixture_name: '', serial_number: ''
   };
   const initialItem = { id: '', part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, unit_cost: 0, location_in_warehouse: '' };
-  const initialUser = { id: '', employee_number: '', full_name: '', email: '', role: 'Tecnico' };
+  // Actualizado: Incluye phone_number
+  const initialUser = { id: '', employee_number: '', full_name: '', email: '', phone_number: '', role: 'Tecnico' };
 
   const [formAsset, setFormAsset] = useState(initialAsset);
   const [formWO, setFormWO] = useState(initialWO);
@@ -91,7 +90,7 @@ export default function App() {
       const res = await fetch(`${BASE_URL}/work-orders`); 
       if(res.ok) {
         const data = await res.json();
-        data.sort((a, b) => a.wo_id - b.wo_id); // Ordenar por ID Ascendente
+        data.sort((a, b) => a.wo_id - b.wo_id);
         setDbWorkOrders(data); 
       }
     } catch(e){} 
@@ -127,7 +126,6 @@ export default function App() {
 
   useEffect(() => { setModelFilter(''); }, [projectFilter]);
 
-  // Helpers Modal OT
   const getProjectsForModal = () => [...new Set(dbAssets.map(a => a.project_name))].filter(Boolean);
   const getModelsForModal = (p) => {
      const assets = p ? dbAssets.filter(a => a.project_name === p) : dbAssets;
@@ -418,13 +416,26 @@ export default function App() {
         {dbStaff.filter(s => s.role !== 'Administrador').map(s => (
           <div key={s.user_id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col relative group hover:shadow-md">
             <button onClick={() => { setFormUser({...s, id: s.user_id}); setIsEditing(true); setActiveModal('user'); }} className="absolute top-4 right-4 p-2 text-slate-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all"><Edit className="w-4 h-4"/></button>
-            <div className="flex items-center gap-4 mb-6">
+            <div className="flex items-center gap-4 mb-4">
                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center font-black text-xl shadow-lg">{s.full_name.charAt(0)}</div>
-               <div><h3 className="font-bold text-slate-800 text-lg">{s.full_name}</h3><p className="text-xs text-slate-400 font-medium">{s.email}</p></div>
+               <div>
+                 <h3 className="font-bold text-slate-800 text-lg">{s.full_name}</h3>
+                 <p className="text-xs text-slate-400 font-medium">{s.email}</p>
+                 <p className="text-xs text-slate-500 font-medium flex items-center mt-1"><Phone className="w-3 h-3 mr-1"/> {s.phone_number || 'N/A'}</p>
+               </div>
             </div>
-            <div className="flex justify-between items-center border-t pt-4">
-               <div><span className="text-[10px] font-black text-slate-300 uppercase block">Carga</span><div className="flex items-center"><div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xs font-black mr-2">{s.active_tasks || 0}</div><span className="text-xs font-bold text-slate-500 uppercase">Pendientes</span></div></div>
-               <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-3 py-1 rounded-full uppercase">{s.role}</span>
+            <div className="grid grid-cols-2 gap-4 border-t pt-4">
+               <div>
+                  <span className="text-[10px] font-black text-slate-300 uppercase block mb-1">Carga</span>
+                  <div className="flex items-center"><div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xs font-black mr-2">{s.active_tasks || 0}</div></div>
+               </div>
+               <div>
+                  <span className="text-[10px] font-black text-slate-300 uppercase block mb-1">Completadas</span>
+                  <div className="flex items-center"><div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs font-black mr-2">{s.completed_tasks || 0}</div></div>
+               </div>
+            </div>
+            <div className="mt-3 text-right">
+                <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-3 py-1 rounded-full uppercase">{s.role}</span>
             </div>
           </div>
         ))}
@@ -506,7 +517,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL ORDEN (CORREGIDO: INFO ACTIVO ESTÁTICA + CANCELAR + ACTIVIDAD) */}
+      {/* MODAL ORDEN */}
       {activeModal === 'wo' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl p-6 my-8 max-h-[calc(100vh-2rem)] overflow-y-auto">
@@ -565,42 +576,22 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL INVENTARIO (EXPANDIDO Y RESPONSIVO CON ETIQUETAS) */}
+      {/* MODAL INVENTARIO (MEJORADO CON ETIQUETAS) */}
       {activeModal === 'item' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-6 sm:p-10 my-8">
             <h3 className="text-2xl font-black text-slate-800 mb-8 uppercase tracking-tighter border-b pb-4">{isEditing ? 'Editar Repuesto' : 'Nuevo Registro de Inventario'}</h3>
             <form onSubmit={handleSaveItem} className="space-y-5">
-               <div className="space-y-1">
-                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Código de Parte (ID)</label>
-                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-mono" placeholder="Ej. SKU-12345" value={formItem.part_code} onChange={e=>setFormItem({...formItem, part_code:e.target.value})}/>
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Código de Parte (ID)</label><input required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-mono" value={formItem.part_code} onChange={e=>setFormItem({...formItem, part_code:e.target.value})}/></div>
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre del Repuesto</label><input required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" value={formItem.name} onChange={e=>setFormItem({...formItem, name:e.target.value})}/></div>
+               <div className="grid grid-cols-2 gap-4">
+                 <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Stock Actual</label><input type="number" required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" value={formItem.stock_quantity} onChange={e=>setFormItem({...formItem, stock_quantity:e.target.value})}/></div>
+                 <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nivel Mínimo</label><input type="number" required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" value={formItem.min_stock_level} onChange={e=>setFormItem({...formItem, min_stock_level:e.target.value})}/></div>
                </div>
-               <div className="space-y-1">
-                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre del Repuesto</label>
-                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" placeholder="Ej. Sensor Óptico" value={formItem.name} onChange={e=>setFormItem({...formItem, name:e.target.value})}/>
-               </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                 <div className="space-y-1">
-                   <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Stock Actual</label>
-                   <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.stock_quantity} onChange={e=>setFormItem({...formItem, stock_quantity:e.target.value})}/>
-                 </div>
-                 <div className="space-y-1">
-                   <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nivel Mínimo</label>
-                   <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.min_stock_level} onChange={e=>setFormItem({...formItem, min_stock_level:e.target.value})}/>
-                 </div>
-               </div>
-               <div className="space-y-1">
-                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Costo Unitario ($)</label>
-                 <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.unit_cost} onChange={e=>setFormItem({...formItem, unit_cost:e.target.value})}/>
-               </div>
-               <div className="space-y-1">
-                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Ubicación Almacén</label>
-                 <input className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" placeholder="Ej. Bin A-2, Estante 1" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem, location_in_warehouse:e.target.value})}/>
-               </div>
-               <div className="flex gap-2">
-                 <button className="w-full bg-slate-800 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl">Confirmar</button>
-                 <button type="button" onClick={()=>setActiveModal(null)} className="w-full bg-slate-200 text-slate-500 py-4 rounded-2xl font-black uppercase">Cancelar</button>
-               </div>
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Costo Unitario ($)</label><input type="number" required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" value={formItem.unit_cost} onChange={e=>setFormItem({...formItem, unit_cost:e.target.value})}/></div>
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Ubicación Almacén</label><input className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" placeholder="Ej. Bin A-2" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem, location_in_warehouse:e.target.value})}/></div>
+               <button className="w-full bg-slate-800 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl">Confirmar Registro</button>
+               <button type="button" onClick={()=>setActiveModal(null)} className="w-full text-center text-slate-400 text-xs font-bold py-2">Cancelar</button>
             </form>
           </div>
         </div>
@@ -608,26 +599,16 @@ export default function App() {
 
       {/* MODAL USUARIO */}
       {activeModal === 'user' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-6 sm:p-10 my-8">
-            <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase tracking-tighter border-b border-slate-50 pb-4">{isEditing ? 'Editar Miembro' : 'Nuevo Miembro'}</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2rem] p-6 w-full max-w-md sm:p-10 my-8">
+            <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase tracking-tighter border-b border-slate-50 pb-4">{isEditing?'Editar':'Nuevo'} Personal</h3>
             <form onSubmit={handleSaveUser} className="space-y-4">
-               <div className="space-y-1">
-                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest"># Empleado</label>
-                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-black" value={formUser.employee_number} onChange={e=>setFormUser({...formUser, employee_number:e.target.value})}/>
-               </div>
-               <div className="space-y-1">
-                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre Completo</label>
-                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.full_name} onChange={e=>setFormUser({...formUser, full_name:e.target.value})}/>
-               </div>
-               <div className="space-y-1">
-                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Email Corporativo</label>
-                 <input type="email" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-medium" value={formUser.email} onChange={e=>setFormUser({...formUser, email:e.target.value})}/>
-               </div>
-               <div className="space-y-1">
-                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Rol Técnico</label>
-                 <select className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.role} onChange={e=>setFormUser({...formUser, role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select>
-               </div>
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest"># Empleado</label><input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-black" value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/></div>
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre Completo</label><input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/></div>
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Email Corporativo</label><input type="email" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-medium" value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/></div>
+               {/* NUEVO CAMPO TELEFONO */}
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Teléfono de Contacto</label><input type="tel" className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-medium" placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
+               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Rol Técnico</label><select className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.role} onChange={e=>setFormUser({...formUser,role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select></div>
                <div className="flex gap-2">
                  <button className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl">Confirmar</button>
                  <button type="button" onClick={()=>setActiveModal(null)} className="w-full bg-slate-200 text-slate-500 py-4 rounded-2xl font-black uppercase">Cancelar</button>
@@ -646,4 +627,3 @@ const NavButton = ({ icon, label, view, current, set }) => (
     <span className={`mr-4 ${current === view ? 'text-blue-600' : 'text-slate-300'}`}>{icon}</span>{label}
   </button>
 );
-// Version Estable (Modulos: Activos, Órdenes de Trabajo, Inventario)
