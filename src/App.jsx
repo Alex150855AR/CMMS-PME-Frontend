@@ -8,6 +8,8 @@ import {
   BookOpen, ChevronRight, HardHat, Info, Upload, File as FileIcon
 } from 'lucide-react';
 
+// NOTA: jsPDF se carga dinámicamente en useEffect
+
 export default function App() {
   // --- ESTADOS UI ---
   const [currentView, setCurrentView] = useState('dashboard');
@@ -37,8 +39,8 @@ export default function App() {
     start_date: '', end_date: '', material_id: '', material_qty: 0, tech_id: '', 
     authorized_by: '', status: 'Programado', description: '', 
     project_filter: '', model_filter: '',
-    // Campos visuales para edición
-    fixture_name: '', serial_number: '' 
+    // Campos visuales estáticos para edición
+    fixture_name: '', serial_number: ''
   };
   const initialItem = { id: '', part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, unit_cost: 0, location_in_warehouse: '' };
   const initialUser = { id: '', employee_number: '', full_name: '', email: '', role: 'Tecnico' };
@@ -90,7 +92,7 @@ export default function App() {
       const res = await fetch(`${BASE_URL}/work-orders`); 
       if(res.ok) {
         const data = await res.json();
-        data.sort((a, b) => a.wo_id - b.wo_id);
+        data.sort((a, b) => a.wo_id - b.wo_id); // Ordenar por ID Ascendente
         setDbWorkOrders(data); 
       }
     } catch(e){} 
@@ -149,7 +151,7 @@ export default function App() {
         doc.rect(0, 0, 210, 40, 'F');
         doc.setTextColor(255);
         doc.setFontSize(22);
-        doc.text("ORDEN DE MANTENIMIENTO", 105, 20, null, null, "center");
+        doc.text("ORDEN DE TRABAJO", 105, 20, null, null, "center");
         doc.setFontSize(10);
         doc.text(`FOLIO: OT-${ot.wo_id} | FECHA: ${new Date().toLocaleDateString()}`, 105, 30, null, null, "center");
 
@@ -167,15 +169,22 @@ export default function App() {
             theme: 'plain', styles: { fontSize: 9 }
         });
 
-        doc.text("2. PROGRAMACIÓN", 14, doc.lastAutoTable.finalY + 10);
+        doc.text("2. DETALLE DE ACTIVIDAD", 14, doc.lastAutoTable.finalY + 10);
+        const splitDesc = doc.splitTextToSize(ot.title || ot.description || 'Sin descripción.', 180);
+        doc.text(splitDesc, 14, doc.lastAutoTable.finalY + 17);
+
+        // Ajustar Y para la siguiente tabla
+        let nextY = doc.lastAutoTable.finalY + 20 + (splitDesc.length * 5);
+
+        doc.text("3. PROGRAMACIÓN", 14, nextY);
         doc.autoTable({
-            startY: doc.lastAutoTable.finalY + 15,
+            startY: nextY + 5,
             head: [['INICIO', 'FIN', 'TÉCNICO', 'AUTORIZÓ']],
             body: [[formatDate(ot.scheduled_start), formatDate(ot.scheduled_end), ot.tech_name || 'N/A', ot.authorized_by || 'N/A']],
             theme: 'grid', headStyles: { fillColor: blue }
         });
 
-        doc.text("3. MATERIALES", 14, doc.lastAutoTable.finalY + 10);
+        doc.text("4. MATERIALES", 14, doc.lastAutoTable.finalY + 10);
         const matList = ot.materials_used ? ot.materials_used.split(',').map(m => [m.trim()]) : [['Ninguno']];
         doc.autoTable({
             startY: doc.lastAutoTable.finalY + 15,
@@ -317,10 +326,10 @@ export default function App() {
           <thead className="bg-slate-50 text-slate-500 uppercase font-black border-b tracking-widest">
             <tr>
                 <th className="px-5 py-4">OT #</th>
-                <th className="px-5 py-4">Activo / Fixtura</th>
+                <th className="px-5 py-4">Activo / Serial</th>
                 <th className="px-5 py-4">Ubicación</th>
-                <th className="px-5 py-4">Tipo</th>
                 <th className="px-5 py-4">Programación</th>
+                <th className="px-5 py-4">Actividad</th>
                 <th className="px-4 py-4 text-center">Prioridad</th>
                 <th className="px-5 py-4">Materiales</th>
                 <th className="px-5 py-4">Técnico</th>
@@ -337,11 +346,13 @@ export default function App() {
                    <div className="text-slate-400 font-mono text-[10px]">{ot.serial_number || 'N/A'}</div>
                 </td>
                 <td className="px-5 py-5 text-slate-500">{ot.location || 'N/A'}</td>
-                <td className="px-5 py-5 text-slate-600 font-bold">{ot.maintenance_type}</td>
                 <td className="px-5 py-5">
                   <div className="text-slate-700 font-bold">{formatDate(ot.scheduled_start)}</div>
                   <div className="text-[10px] text-slate-400 italic">Fin: {formatDate(ot.scheduled_end)}</div>
                 </td>
+                {/* NUEVA COLUMNA ACTIVIDAD */}
+                <td className="px-5 py-5 text-slate-600 max-w-xs truncate" title={ot.title || ot.description}>{ot.title || ot.description}</td>
+                
                 <td className="px-4 py-5 text-center">
                     <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>
                         {ot.priority ? ot.priority.toUpperCase() : 'MEDIA'}
@@ -362,7 +373,20 @@ export default function App() {
                 </td>
                 <td className="px-5 py-5 text-center">
                   <div className="flex justify-center gap-2">
-                    <button onClick={() => { setFormWO({...ot, id: ot.wo_id, start_date: ot.scheduled_start?.split('T')[0], end_date: ot.scheduled_end?.split('T')[0]}); setIsEditing(true); setActiveModal('wo'); }} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all"><Edit className="w-3.5 h-3.5"/></button>
+                    <button onClick={() => { 
+                        setFormWO({
+                          ...ot, 
+                          id: ot.wo_id, 
+                          start_date: ot.scheduled_start?.split('T')[0], 
+                          end_date: ot.scheduled_end?.split('T')[0],
+                          description: ot.title || ot.description,
+                          // Guardamos datos estáticos para mostrar en el modal de edición
+                          fixture_name: ot.fixture_name,
+                          serial_number: ot.serial_number
+                        }); 
+                        setIsEditing(true); 
+                        setActiveModal('wo'); 
+                    }} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all"><Edit className="w-3.5 h-3.5"/></button>
                     <button onClick={() => printOrderPDF(ot)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"><Printer className="w-3.5 h-3.5"/></button>
                   </div>
                 </td>
@@ -485,7 +509,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL ORDEN (CORREGIDO: INFO ACTIVO ESTÁTICA) */}
+      {/* MODAL ORDEN (CORREGIDO: INFO ACTIVO ESTÁTICA + CANCELAR + ACTIVIDAD) */}
       {activeModal === 'wo' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl p-6 my-8 max-h-[calc(100vh-2rem)] overflow-y-auto">
@@ -518,6 +542,10 @@ export default function App() {
                   <div><label className="text-[11px] font-black text-slate-400 uppercase">Inicio</label><input type="date" required className="w-full bg-slate-50 border rounded-2xl p-3 text-sm" value={formWO.start_date} onChange={e=>setFormWO({...formWO, start_date:e.target.value})}/></div>
                   <div><label className="text-[11px] font-black text-slate-400 uppercase">Fin</label><input type="date" required className="w-full bg-slate-50 border rounded-2xl p-3 text-sm" value={formWO.end_date} onChange={e=>setFormWO({...formWO, end_date:e.target.value})}/></div>
                </div>
+               
+               {/* NUEVO CAMPO ACTIVIDAD */}
+               <div><label className="text-[11px] font-black text-slate-400 uppercase">Descripción de Actividad</label><textarea className="w-full bg-slate-50 border rounded-2xl p-3 text-sm h-20" placeholder="Detalle el trabajo a realizar..." value={formWO.description} onChange={e=>setFormWO({...formWO, description:e.target.value})}/></div>
+
                <div className="grid grid-cols-2 gap-4">
                   <div><label className="text-[11px] font-black text-slate-400 uppercase">Prioridad</label><select className="w-full bg-slate-50 border rounded-2xl p-3 text-sm font-bold" value={formWO.priority} onChange={e=>setFormWO({...formWO, priority:e.target.value})}><option>Baja</option><option>Media</option><option>Alta</option><option>Critica</option></select></div>
                   <div><label className="text-[11px] font-black text-slate-400 uppercase">Autorizado Por</label><select className="w-full bg-slate-50 border rounded-2xl p-3 text-sm" value={formWO.authorized_by} onChange={e=>setFormWO({...formWO, authorized_by:e.target.value})}><option value="">-- Seleccionar --</option>{dbStaff.filter(s=>['Ingeniero','Supervisor'].includes(s.role)).map(s=><option key={s.user_id} value={s.full_name}>{s.full_name}</option>)}</select></div>
