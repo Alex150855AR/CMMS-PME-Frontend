@@ -5,7 +5,8 @@ import {
   Search, Activity, Clock, Hammer, DollarSign,
   Wifi, WifiOff, Edit, Printer, FileText, Filter, Trash2, Eye,
   CheckCircle, AlertCircle, FilePlus, UserPlus, Image as ImageIcon,
-  BookOpen, ChevronRight, HardHat, Info, Upload, File as FileIcon, Phone
+  BookOpen, ChevronRight, HardHat, Info, Upload, File as FileIcon,
+  Phone, ListTodo, History
 } from 'lucide-react';
 
 export default function App() {
@@ -15,6 +16,9 @@ export default function App() {
   const [activeModal, setActiveModal] = useState(null); 
   const [isEditing, setIsEditing] = useState(false); 
   
+  // Estado para el Modal de Historial Técnico
+  const [techHistoryModal, setTechHistoryModal] = useState({ show: false, tech: null, type: 'pending' });
+
   // --- ESTADOS DE DATOS ---
   const [dbAssets, setDbAssets] = useState([]);      
   const [dbWorkOrders, setDbWorkOrders] = useState([]); 
@@ -40,7 +44,6 @@ export default function App() {
     fixture_name: '', serial_number: ''
   };
   const initialItem = { id: '', part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, unit_cost: 0, location_in_warehouse: '' };
-  // Actualizado: Incluye phone_number
   const initialUser = { id: '', employee_number: '', full_name: '', email: '', phone_number: '', role: 'Tecnico' };
 
   const [formAsset, setFormAsset] = useState(initialAsset);
@@ -90,7 +93,7 @@ export default function App() {
       const res = await fetch(`${BASE_URL}/work-orders`); 
       if(res.ok) {
         const data = await res.json();
-        data.sort((a, b) => a.wo_id - b.wo_id);
+        data.sort((a, b) => a.wo_id - b.wo_id); 
         setDbWorkOrders(data); 
       }
     } catch(e){} 
@@ -133,76 +136,109 @@ export default function App() {
   };
   const getAssetsForModal = (p, m) => dbAssets.filter(a => (!p || a.project_name === p) && (!m || a.model_name === m));
 
-  // --- GENERACIÓN PDF ---
-  const printOrderPDF = (ot) => {
-    if (!window.jspdf || !window.jspdf.jsPDF) {
-        alert("El motor de PDF aún se está cargando. Por favor, espere unos segundos e intente nuevamente.");
-        return;
-    }
-    
+  // --- FUNCIONES HISTORIAL TÉCNICO ---
+  const openTechHistory = (tech, type) => {
+    setTechHistoryModal({ show: true, tech, type });
+  };
+
+  const closeTechHistory = () => {
+    setTechHistoryModal({ show: false, tech: null, type: 'pending' });
+  };
+
+  const handleUpdateStatusFromTable = async (woId, newStatus) => {
+    const originalWO = dbWorkOrders.find(w => w.wo_id === woId);
+    if (!originalWO) return;
+
+    const payload = {
+        description: originalWO.title || originalWO.description,
+        priority: originalWO.priority,
+        status: newStatus,
+        authorized_by: originalWO.authorized_by,
+        location: originalWO.location,
+        scheduled_start: originalWO.scheduled_start,
+        scheduled_end: originalWO.scheduled_end,
+        assigned_user_id: originalWO.assigned_user_id
+    };
+
     try {
-        const doc = new window.jspdf.jsPDF();
-        const blue = [41, 128, 185];
-
-        doc.setFillColor(...blue);
-        doc.rect(0, 0, 210, 40, 'F');
-        doc.setTextColor(255);
-        doc.setFontSize(22);
-        doc.text("ORDEN DE MANTENIMIENTO", 105, 20, null, null, "center");
-        doc.setFontSize(10);
-        doc.text(`FOLIO: OT-${ot.wo_id} | FECHA: ${new Date().toLocaleDateString()}`, 105, 30, null, null, "center");
-
-        doc.setTextColor(0);
-        doc.setFontSize(12);
-        doc.text("1. DATOS DEL EQUIPO", 14, 50);
-        
-        doc.autoTable({
-            startY: 55,
-            body: [
-                ["Activo:", ot.fixture_name, "S/N:", ot.serial_number],
-                ["Ubicación:", ot.location || 'N/A', "Tipo:", ot.maintenance_type],
-                ["Prioridad:", ot.priority, "Estado:", ot.status]
-            ],
-            theme: 'plain', styles: { fontSize: 9 }
+        const res = await fetch(`${BASE_URL}/work-orders/${woId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-
-        doc.text("2. DETALLE DE ACTIVIDAD", 14, doc.lastAutoTable.finalY + 10);
-        const splitDesc = doc.splitTextToSize(ot.title || ot.description || 'Sin descripción.', 180);
-        doc.text(splitDesc, 14, doc.lastAutoTable.finalY + 17);
-
-        let nextY = doc.lastAutoTable.finalY + 20 + (splitDesc.length * 5);
-
-        doc.text("3. PROGRAMACIÓN", 14, nextY);
-        doc.autoTable({
-            startY: nextY + 5,
-            head: [['INICIO', 'FIN', 'TÉCNICO', 'AUTORIZÓ']],
-            body: [[formatDate(ot.scheduled_start), formatDate(ot.scheduled_end), ot.tech_name || 'N/A', ot.authorized_by || 'N/A']],
-            theme: 'grid', headStyles: { fillColor: blue }
-        });
-
-        doc.text("4. MATERIALES", 14, doc.lastAutoTable.finalY + 10);
-        const matList = ot.materials_used ? ot.materials_used.split(',').map(m => [m.trim()]) : [['Ninguno']];
-        doc.autoTable({
-            startY: doc.lastAutoTable.finalY + 15,
-            head: [['MATERIAL / CANTIDAD']],
-            body: matList,
-            theme: 'striped', headStyles: { fillColor: [50, 50, 50] }
-        });
-
-        const finalY = doc.lastAutoTable.finalY + 30;
-        doc.line(20, finalY, 80, finalY);
-        doc.text("FIRMA TÉCNICO", 35, finalY + 5);
-        doc.line(130, finalY, 190, finalY);
-        doc.text("FIRMA SUPERVISOR", 145, finalY + 5);
-
-        doc.save(`OT-${ot.wo_id}.pdf`);
-    } catch (err) {
-        console.error("Error PDF:", err);
-        alert("Error al generar PDF.");
+        if (res.ok) {
+            alert(`Estado actualizado a: ${newStatus}`);
+            fetchWorkOrders(); 
+            fetchUsers(); 
+        } else {
+            alert('Error al actualizar estado');
+        }
+    } catch (e) {
+        alert('Error de conexión');
     }
   };
 
-  // --- API HANDLER ---
+  // --- GENERACIÓN PDF ---
+  const printOrderPDF = (ot) => {
+    if (!window.jspdf || !window.jspdf.jsPDF) return alert("Motor de PDF cargando...");
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const blue = [41, 128, 185];
+
+    doc.setFillColor(...blue);
+    doc.rect(0, 0, 210, 40, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(22);
+    doc.text("ORDEN DE MANTENIMIENTO", 105, 20, null, null, "center");
+    doc.setFontSize(10);
+    doc.text(`FOLIO: OT-${ot.wo_id} | FECHA: ${new Date().toLocaleDateString()}`, 105, 30, null, null, "center");
+
+    doc.setTextColor(0);
+    doc.setFontSize(12);
+    doc.text("1. DATOS DEL EQUIPO", 14, 50);
+    doc.autoTable({
+        startY: 55,
+        body: [
+            ["Activo:", ot.fixture_name, "S/N:", ot.serial_number],
+            ["Ubicación:", ot.location || 'N/A', "Tipo:", ot.maintenance_type],
+            ["Prioridad:", ot.priority, "Estado:", ot.status]
+        ],
+        theme: 'plain', styles: { fontSize: 9 }
+    });
+
+    doc.text("2. DETALLE DE ACTIVIDAD", 14, doc.lastAutoTable.finalY + 10);
+    const splitDesc = doc.splitTextToSize(ot.title || ot.description || 'Sin descripción.', 180);
+    doc.text(splitDesc, 14, doc.lastAutoTable.finalY + 17);
+
+    let nextY = doc.lastAutoTable.finalY + 20 + (splitDesc.length * 5);
+
+    doc.text("3. PROGRAMACIÓN", 14, nextY);
+    doc.autoTable({
+        startY: nextY + 5,
+        head: [['INICIO', 'FIN', 'TÉCNICO', 'AUTORIZÓ']],
+        body: [[formatDate(ot.scheduled_start), formatDate(ot.scheduled_end), ot.tech_name || 'N/A', ot.authorized_by || 'N/A']],
+        theme: 'grid', headStyles: { fillColor: blue }
+    });
+
+    doc.text("4. MATERIALES", 14, doc.lastAutoTable.finalY + 10);
+    const matList = ot.materials_used ? ot.materials_used.split(',').map(m => [m.trim()]) : [['Ninguno']];
+    doc.autoTable({
+        startY: doc.lastAutoTable.finalY + 15,
+        head: [['MATERIAL / CANTIDAD']],
+        body: matList,
+        theme: 'striped', headStyles: { fillColor: [50, 50, 50] }
+    });
+
+    const finalY = doc.lastAutoTable.finalY + 30;
+    doc.line(20, finalY, 80, finalY);
+    doc.text("FIRMA TÉCNICO", 35, finalY + 5);
+    doc.line(130, finalY, 190, finalY);
+    doc.text("FIRMA SUPERVISOR", 145, finalY + 5);
+
+    doc.save(`OT-${ot.wo_id}.pdf`);
+  };
+
+  // --- API HANDLERS ---
   const apiRequest = async (url, method, body) => {
     try {
       const res = await fetch(url, { 
@@ -222,7 +258,6 @@ export default function App() {
     } catch(e) { alert('Error de conexión con el servidor.'); }
   };
 
-  // --- HANDLERS ---
   const handleSaveAsset = (e) => {
     e.preventDefault();
     const url = isEditing ? `${BASE_URL}/assets/${formAsset.id}` : `${BASE_URL}/assets`;
@@ -346,7 +381,6 @@ export default function App() {
                   <div className="text-slate-700 font-bold">{formatDate(ot.scheduled_start)}</div>
                   <div className="text-[10px] text-slate-400 italic">Fin: {formatDate(ot.scheduled_end)}</div>
                 </td>
-                {/* COLUMNA ACTIVIDAD */}
                 <td className="px-5 py-5 text-slate-600 max-w-xs truncate" title={ot.title || ot.description}>{ot.title || ot.description}</td>
                 <td className="px-4 py-5 text-center">
                     <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>
@@ -377,7 +411,7 @@ export default function App() {
                           description: ot.title || ot.description,
                           fixture_name: ot.fixture_name,
                           serial_number: ot.serial_number,
-                          tech_id: ot.assigned_user_id // Asegurar que el técnico se cargue al editar
+                          tech_id: ot.assigned_user_id 
                         }); 
                         setIsEditing(true); 
                         setActiveModal('wo'); 
@@ -418,24 +452,22 @@ export default function App() {
             <button onClick={() => { setFormUser({...s, id: s.user_id}); setIsEditing(true); setActiveModal('user'); }} className="absolute top-4 right-4 p-2 text-slate-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all"><Edit className="w-4 h-4"/></button>
             <div className="flex items-center gap-4 mb-4">
                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center font-black text-xl shadow-lg">{s.full_name.charAt(0)}</div>
-               <div>
-                 <h3 className="font-bold text-slate-800 text-lg">{s.full_name}</h3>
-                 <p className="text-xs text-slate-400 font-medium">{s.email}</p>
-                 <p className="text-xs text-slate-500 font-medium flex items-center mt-1"><Phone className="w-3 h-3 mr-1"/> {s.phone_number || 'N/A'}</p>
-               </div>
+               <div><h3 className="font-bold text-slate-800 text-lg">{s.full_name}</h3><p className="text-xs text-slate-400 font-medium">{s.email}</p><p className="text-xs text-slate-500 font-medium flex items-center mt-1"><Phone className="w-3 h-3 mr-1"/> {s.phone_number || 'N/A'}</p></div>
             </div>
-            <div className="grid grid-cols-2 gap-4 border-t pt-4">
-               <div>
-                  <span className="text-[10px] font-black text-slate-300 uppercase block mb-1">Carga</span>
-                  <div className="flex items-center"><div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xs font-black mr-2">{s.active_tasks || 0}</div></div>
-               </div>
-               <div>
-                  <span className="text-[10px] font-black text-slate-300 uppercase block mb-1">Completadas</span>
-                  <div className="flex items-center"><div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs font-black mr-2">{s.completed_tasks || 0}</div></div>
-               </div>
+            
+            {/* BOTONES DE GESTIÓN TÉCNICA */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+               <button onClick={() => openTechHistory(s, 'pending')} className="flex items-center justify-center bg-orange-50 text-orange-600 text-xs font-bold py-2 rounded-xl hover:bg-orange-100 transition-colors border border-orange-200">
+                  <ListTodo className="w-3 h-3 mr-2"/> Pendientes ({s.active_tasks || 0})
+               </button>
+               <button onClick={() => openTechHistory(s, 'all')} className="flex items-center justify-center bg-blue-50 text-blue-600 text-xs font-bold py-2 rounded-xl hover:bg-blue-100 transition-colors border border-blue-200">
+                  <History className="w-3 h-3 mr-2"/> Historial
+               </button>
             </div>
-            <div className="mt-3 text-right">
-                <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-3 py-1 rounded-full uppercase">{s.role}</span>
+
+            <div className="flex justify-between items-center border-t pt-4">
+               <span className="text-[10px] font-black text-slate-300 uppercase">Eficiencia: {s.completed_tasks || 0} OTs</span>
+               <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-3 py-1 rounded-full uppercase">{s.role}</span>
             </div>
           </div>
         ))}
@@ -517,7 +549,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL ORDEN */}
+      {/* MODAL ORDEN (RESTORED PERFECT STATE) */}
       {activeModal === 'wo' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl p-6 my-8 max-h-[calc(100vh-2rem)] overflow-y-auto">
@@ -551,7 +583,7 @@ export default function App() {
                   <div><label className="text-[11px] font-black text-slate-400 uppercase">Fin</label><input type="date" required className="w-full bg-slate-50 border rounded-2xl p-3 text-sm" value={formWO.end_date} onChange={e=>setFormWO({...formWO, end_date:e.target.value})}/></div>
                </div>
                
-               {/* NUEVO CAMPO ACTIVIDAD */}
+               {/* CAMPO ACTIVIDAD */}
                <div><label className="text-[11px] font-black text-slate-400 uppercase">Descripción de Actividad</label><textarea className="w-full bg-slate-50 border rounded-2xl p-3 text-sm h-20" placeholder="Detalle el trabajo a realizar..." value={formWO.description} onChange={e=>setFormWO({...formWO, description:e.target.value})}/></div>
 
                <div className="grid grid-cols-2 gap-4">
@@ -576,39 +608,73 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL INVENTARIO (MEJORADO CON ETIQUETAS) */}
+      {/* MODAL INVENTARIO (RESTAURADO: EXPANDIDO Y ETIQUETADO) */}
       {activeModal === 'item' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-6 sm:p-10 my-8">
-            <h3 className="text-2xl font-black text-slate-800 mb-8 uppercase tracking-tighter border-b pb-4">{isEditing ? 'Editar Repuesto' : 'Nuevo Registro de Inventario'}</h3>
-            <form onSubmit={handleSaveItem} className="space-y-5">
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Código de Parte (ID)</label><input required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-mono" value={formItem.part_code} onChange={e=>setFormItem({...formItem, part_code:e.target.value})}/></div>
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre del Repuesto</label><input required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" value={formItem.name} onChange={e=>setFormItem({...formItem, name:e.target.value})}/></div>
-               <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Stock Actual</label><input type="number" required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" value={formItem.stock_quantity} onChange={e=>setFormItem({...formItem, stock_quantity:e.target.value})}/></div>
-                 <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nivel Mínimo</label><input type="number" required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" value={formItem.min_stock_level} onChange={e=>setFormItem({...formItem, min_stock_level:e.target.value})}/></div>
+            <h3 className="text-2xl font-black text-slate-800 mb-8 uppercase tracking-tighter border-b border-slate-50 pb-4">{isEditing ? 'Editar Repuesto' : 'Nuevo Registro'}</h3>
+            <form onSubmit={handleSaveItem} className="space-y-4">
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Código de Parte (ID)</label>
+                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-mono" value={formItem.part_code} onChange={e=>setFormItem({...formItem, part_code:e.target.value})}/>
                </div>
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Costo Unitario ($)</label><input type="number" required className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" value={formItem.unit_cost} onChange={e=>setFormItem({...formItem, unit_cost:e.target.value})}/></div>
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Ubicación Almacén</label><input className="w-full bg-slate-50 border rounded-2xl p-4 text-sm font-bold" placeholder="Ej. Bin A-2" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem, location_in_warehouse:e.target.value})}/></div>
-               <button className="w-full bg-slate-800 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl">Confirmar Registro</button>
-               <button type="button" onClick={()=>setActiveModal(null)} className="w-full text-center text-slate-400 text-xs font-bold py-2">Cancelar</button>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre del Repuesto</label>
+                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.name} onChange={e=>setFormItem({...formItem, name:e.target.value})}/>
+               </div>
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div className="space-y-1">
+                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Stock Actual</label>
+                    <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.stock_quantity} onChange={e=>setFormItem({...formItem, stock_quantity:e.target.value})}/>
+                 </div>
+                 <div className="space-y-1">
+                    <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nivel Mínimo</label>
+                    <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.min_stock_level} onChange={e=>setFormItem({...formItem, min_stock_level:e.target.value})}/>
+                 </div>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Costo Unitario ($)</label>
+                 <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.unit_cost} onChange={e=>setFormItem({...formItem, unit_cost:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Ubicación Almacén</label>
+                 <input className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" placeholder="Ej. Bin A-2" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem, location_in_warehouse:e.target.value})}/>
+               </div>
+               <div className="flex gap-2">
+                 <button className="w-full bg-slate-800 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl">Confirmar</button>
+                 <button type="button" onClick={()=>setActiveModal(null)} className="w-full bg-slate-200 text-slate-500 py-4 rounded-2xl font-black uppercase">Cancelar</button>
+               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* MODAL USUARIO */}
+      {/* MODAL USUARIO (RESTAURADO: EXPANDIDO, ETIQUETADO Y CON TELEFONO) */}
       {activeModal === 'user' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 overflow-y-auto">
-          <div className="bg-white rounded-[2rem] p-6 w-full max-w-md sm:p-10 my-8">
-            <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase tracking-tighter border-b border-slate-50 pb-4">{isEditing?'Editar':'Nuevo'} Personal</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-6 sm:p-10 my-8">
+            <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase tracking-tighter border-b border-slate-50 pb-4">{isEditing ? 'Editar Miembro' : 'Nuevo Miembro'}</h3>
             <form onSubmit={handleSaveUser} className="space-y-4">
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest"># Empleado</label><input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-black" value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/></div>
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre Completo</label><input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/></div>
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Email Corporativo</label><input type="email" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-medium" value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/></div>
-               {/* NUEVO CAMPO TELEFONO */}
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Teléfono de Contacto</label><input type="tel" className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-medium" placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
-               <div className="space-y-1"><label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Rol Técnico</label><select className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.role} onChange={e=>setFormUser({...formUser,role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select></div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest"># Empleado</label>
+                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-black" value={formUser.employee_number} onChange={e=>setFormUser({...formUser, employee_number:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre Completo</label>
+                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.full_name} onChange={e=>setFormUser({...formUser, full_name:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Email Corporativo</label>
+                 <input type="email" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-medium" value={formUser.email} onChange={e=>setFormUser({...formUser, email:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Teléfono de Contacto</label>
+                 <input type="tel" className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-medium" placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser, phone_number:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Rol Técnico</label>
+                 <select className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.role} onChange={e=>setFormUser({...formUser, role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select>
+               </div>
                <div className="flex gap-2">
                  <button className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl">Confirmar</button>
                  <button type="button" onClick={()=>setActiveModal(null)} className="w-full bg-slate-200 text-slate-500 py-4 rounded-2xl font-black uppercase">Cancelar</button>
@@ -616,6 +682,83 @@ export default function App() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* --- NUEVO: MODAL HISTORIAL TÉCNICO --- */}
+      {techHistoryModal.show && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 overflow-y-auto">
+            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl p-8 max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">
+                            {techHistoryModal.type === 'pending' ? 'ACTIVIDADES PENDIENTES' : 'HISTORIAL COMPLETO'}
+                        </h2>
+                        <p className="text-slate-400 font-bold">{techHistoryModal.tech?.full_name} ({techHistoryModal.tech?.employee_number})</p>
+                    </div>
+                    <button onClick={closeTechHistory} className="p-3 bg-slate-100 rounded-full hover:bg-red-50 hover:text-red-500 transition-colors"><X/></button>
+                </div>
+                
+                {(() => {
+                    const techOrders = dbWorkOrders.filter(wo => wo.assigned_user_id === techHistoryModal.tech?.user_id);
+                    const displayedOrders = techHistoryModal.type === 'pending' 
+                        ? techOrders.filter(wo => !['Completado', 'No Completado'].includes(wo.status))
+                        : techOrders;
+                    
+                    if (displayedOrders.length === 0) return <div className="text-center py-20 text-slate-300 font-black italic">NO HAY REGISTROS DISPONIBLES</div>;
+
+                    return (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-xs text-left">
+                                <thead className="bg-slate-50 text-slate-400 uppercase font-black">
+                                    <tr>
+                                        <th className="p-4">OT #</th>
+                                        <th className="p-4">Activo</th>
+                                        <th className="p-4">Tarea</th>
+                                        <th className="p-4">Fechas</th>
+                                        <th className="p-4">Prioridad</th>
+                                        <th className="p-4">Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+                                    {displayedOrders.map(ot => (
+                                        <tr key={ot.wo_id} className="hover:bg-blue-50/20">
+                                            <td className="p-4 font-black text-blue-600">#{ot.wo_id}</td>
+                                            <td className="p-4 font-bold">{ot.fixture_name}</td>
+                                            <td className="p-4 max-w-xs truncate">{ot.title || ot.description}</td>
+                                            <td className="p-4">{formatDate(ot.scheduled_start)} - {formatDate(ot.scheduled_end)}</td>
+                                            <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-black ${ot.priority==='Critica'?'bg-red-100 text-red-600':'bg-blue-50 text-blue-600'}`}>{ot.priority}</span></td>
+                                            <td className="p-4">
+                                                {techHistoryModal.type === 'pending' ? (
+                                                    <select 
+                                                        className="border rounded p-2 text-xs font-bold text-slate-700 bg-white outline-none focus:ring-2 focus:ring-blue-500"
+                                                        value={ot.status}
+                                                        onChange={(e) => handleUpdateStatusFromTable(ot.wo_id, e.target.value)}
+                                                    >
+                                                        <option>Programado</option>
+                                                        <option>Reprogramado</option>
+                                                        <option>En Progreso</option>
+                                                        <option>Completado</option>
+                                                        <option>No Completado</option>
+                                                    </select>
+                                                ) : (
+                                                    <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${
+                                                      ot.status === 'Completado' ? 'bg-green-100 text-green-800 border-green-200' :
+                                                      ot.status === 'No Completado' ? 'bg-red-100 text-red-800 border-red-200' :
+                                                      'bg-gray-100 text-gray-600 border-gray-200'
+                                                    }`}>
+                                                      {ot.status}
+                                                    </span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    );
+                })()}
+            </div>
+         </div>
       )}
 
     </div>
