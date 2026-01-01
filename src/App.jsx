@@ -6,7 +6,7 @@ import {
   Wifi, WifiOff, Edit, Printer, FileText, Filter, Trash2, Eye,
   CheckCircle, AlertCircle, FilePlus, UserPlus, Image as ImageIcon,
   BookOpen, ChevronRight, HardHat, Info, Upload, File as FileIcon,
-  Phone, ListTodo, History
+  Phone, ListTodo, History, Save
 } from 'lucide-react';
 
 export default function App() {
@@ -29,6 +29,37 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState(''); 
   const [projectFilter, setProjectFilter] = useState('');
   const [modelFilter, setModelFilter] = useState('');
+
+  // --- ESTADOS CHECKLIST ---
+  const [chkDate, setChkDate] = useState(new Date().toISOString().split('T')[0]);
+  const [chkLine, setChkLine] = useState('');
+  const [chkProject, setChkProject] = useState('');
+  const [chkModel, setChkModel] = useState('');
+  const [chkTech, setChkTech] = useState('');
+  const [chkData, setChkData] = useState({}); 
+
+  // --- ESTILOS ESTANDARIZADOS (UI SYSTEM) ---
+  const UI = {
+    // Contenedores y Modales
+    modalOverlay: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto",
+    modalBox: "bg-white rounded-[2.5rem] shadow-2xl w-full p-8 sm:p-10 my-8 transition-all relative overflow-hidden",
+    modalHeader: "flex justify-between items-center mb-8 border-b border-slate-100 pb-4",
+    title: "text-2xl font-black text-slate-800 uppercase tracking-tighter",
+    
+    // Formularios
+    label: "text-xs font-black text-slate-500 uppercase tracking-widest mb-2 block",
+    input: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all placeholder:text-slate-300",
+    select: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all appearance-none",
+    textarea: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all h-24 resize-none",
+    
+    // Botones
+    btnPrimary: "w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase tracking-widest shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300 transition-all active:scale-[0.98]",
+    btnSecondary: "w-full bg-slate-100 text-slate-400 py-3 rounded-xl font-bold uppercase tracking-wide hover:bg-slate-200 hover:text-slate-600 transition-all",
+    closeBtn: "p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors",
+    
+    // Grid System
+    grid2: "grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6",
+  };
 
   // --- FORMULARIOS ---
   const initialAsset = { 
@@ -54,20 +85,6 @@ export default function App() {
   const BASE_URL = 'http://localhost:3000/api';
   const [loading, setLoading] = useState(false);
   const [serverStatus, setServerStatus] = useState('checking');
-
-  // --- ESTILOS ESTANDARIZADOS (MEJORADOS PARA VISIBILIDAD MÓVIL) ---
-  const UI = {
-    modalOverlay: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto",
-    modalBox: "bg-white rounded-[2.5rem] shadow-2xl w-full p-8 sm:p-10 my-8 transition-all relative overflow-hidden",
-    modalHeader: "text-2xl font-black text-slate-800 mb-8 uppercase tracking-tighter border-b border-slate-100 pb-4 flex justify-between items-center",
-    // CAMBIO: Color más oscuro (text-slate-700) y tamaño estándar (text-xs) para mejor lectura
-    label: "text-xs font-black text-slate-700 uppercase tracking-widest mb-2 block",
-    input: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all placeholder:text-slate-300",
-    select: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all appearance-none",
-    btnPrimary: "w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase tracking-widest shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300 transition-all active:scale-[0.98]",
-    btnSecondary: "w-full bg-slate-100 text-slate-400 py-3 rounded-xl font-bold uppercase tracking-wide hover:bg-slate-200 hover:text-slate-600 transition-all",
-    closeBtn: "p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"
-  };
 
   // --- CARGA DINÁMICA DE LIBRERÍAS PDF ---
   useEffect(() => {
@@ -150,6 +167,10 @@ export default function App() {
   };
   const getAssetsForModal = (p, m) => dbAssets.filter(a => (!p || a.project_name === p) && (!m || a.model_name === m));
 
+  // CORRECCIÓN CHECKLIST: Helper reintroducido
+  const getModelsForProject = (p) => [...new Set((p ? dbAssets.filter(a=>a.project_name===p) : dbAssets).map(a=>a.model_name))].filter(Boolean);
+
+
   // --- FUNCIONES HISTORIAL TÉCNICO ---
   const openTechHistory = (tech, type) => {
     fetchWorkOrders().then(() => setTechHistoryModal({ show: true, tech, type }));
@@ -162,6 +183,7 @@ export default function App() {
   const handleUpdateStatusFromTable = async (woId, newStatus) => {
     const originalWO = dbWorkOrders.find(w => w.wo_id === woId);
     if (!originalWO) return;
+
     const payload = {
         description: originalWO.title || originalWO.description,
         priority: originalWO.priority,
@@ -172,11 +194,23 @@ export default function App() {
         scheduled_end: originalWO.scheduled_end,
         assigned_user_id: originalWO.assigned_user_id
     };
+
     try {
-        const res = await fetch(`${BASE_URL}/work-orders/${woId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (res.ok) { fetchWorkOrders(); fetchUsers(); alert(`Estado actualizado a: ${newStatus}`); } 
-        else { alert('Error al actualizar estado'); }
-    } catch (e) { alert('Error de conexión'); }
+        const res = await fetch(`${BASE_URL}/work-orders/${woId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            alert(`Estado actualizado a: ${newStatus}`);
+            fetchWorkOrders(); 
+            fetchUsers(); 
+        } else {
+            alert('Error al actualizar estado');
+        }
+    } catch (e) {
+        alert('Error de conexión');
+    }
   };
 
   // --- GENERACIÓN PDF ---
@@ -197,6 +231,7 @@ export default function App() {
     doc.setTextColor(0);
     doc.setFontSize(12);
     doc.text("1. DATOS DEL EQUIPO", 14, 50);
+    
     doc.autoTable({
         startY: 55,
         body: [
@@ -290,6 +325,36 @@ export default function App() {
     apiRequest(url, isEditing ? 'PUT' : 'POST', formUser);
   };
 
+  // --- HANDLER CHECKLIST ---
+  const handleSaveChecklist = async () => {
+     if(!chkDate || !chkModel || !chkTech) return alert("Complete Fecha, Modelo y Técnico.");
+     const assetsToCheck = dbAssets.filter(a => a.model_name === chkModel);
+     if(assetsToCheck.length === 0) return alert("No hay activos para este modelo.");
+     const items = assetsToCheck.map(asset => ({
+        asset_id: asset.asset_id,
+        check_1: chkData[`${asset.asset_id}_1`] || 'OK',
+        check_2: chkData[`${asset.asset_id}_2`] || 'OK',
+        check_3: chkData[`${asset.asset_id}_3`] || 'OK',
+        check_4: chkData[`${asset.asset_id}_4`] || 'OK',
+        check_5: chkData[`${asset.asset_id}_5`] || 'OK',
+        check_6: chkData[`${asset.asset_id}_6`] || 'OK',
+        check_7: chkData[`${asset.asset_id}_7`] || 'OK',
+        check_8: chkData[`${asset.asset_id}_8`] || 'OK',
+        check_9: chkData[`${asset.asset_id}_9`] || 'OK',
+        remarks: chkData[`${asset.asset_id}_remarks`] || ''
+     }));
+     const payload = { date: chkDate, project: chkProject, model: chkModel, line: chkLine, tech_id: chkTech, items };
+     try {
+        const res = await fetch(`${BASE_URL}/daily-checklists`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        if(res.ok) { alert("Checklist Guardado"); setChkData({}); } 
+        else alert("Error guardando checklist");
+     } catch(e) { alert("Error conexión"); }
+  };
+
+  const handleCheckChange = (assetId, checkIdx, value) => {
+     setChkData(prev => ({ ...prev, [`${assetId}_${checkIdx}`]: value }));
+  };
+
   // --- VISTAS ---
 
   const renderAssetsView = () => (
@@ -375,12 +440,22 @@ export default function App() {
                 </td>
                 <td className="px-5 py-5 text-slate-600 max-w-xs truncate" title={ot.title || ot.description}>{ot.title || ot.description}</td>
                 <td className="px-4 py-5 text-center">
-                    <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>{ot.priority ? ot.priority.toUpperCase() : 'MEDIA'}</span>
+                    <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>
+                        {ot.priority ? ot.priority.toUpperCase() : 'MEDIA'}
+                    </span>
                 </td>
                 <td className="px-5 py-5 text-slate-500 italic max-w-[150px] truncate">{ot.materials_used || 'Ninguno'}</td>
                 <td className="px-5 py-5 text-slate-800 font-bold">{ot.tech_name || 'Sin asignar'}</td>
                 <td className="px-5 py-5 text-center">
-                   <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${ot.status === 'Programado' ? 'bg-gray-100 text-black border-gray-300' : ot.status === 'Reprogramado' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : ot.status === 'Completado' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-red-100 text-red-800 border-red-200'}`}>{ot.status}</span>
+                   <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${
+                     ot.status === 'Programado' ? 'bg-gray-100 text-black border-gray-300' :
+                     ot.status === 'Reprogramado' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
+                     ot.status === 'Completado' ? 'bg-green-100 text-green-800 border-green-200' :
+                     ot.status === 'No Completado' ? 'bg-red-100 text-red-800 border-red-200' :
+                     'bg-gray-50 text-gray-500'
+                   }`}>
+                     {ot.status}
+                   </span>
                 </td>
                 <td className="px-5 py-5 text-center">
                   <div className="flex justify-center gap-2">
@@ -450,6 +525,68 @@ export default function App() {
     </div>
   );
 
+  const renderChecklistView = () => {
+    const currentAssets = chkModel ? dbAssets.filter(a => a.model_name === chkModel) : [];
+    const columns = ["Clear fixture", "Label clear", "X/Y/Z move", "X/Y/Z adjust", "Supp pin loose", "Stopper loose", "Wear parts", "Set fixture", "Foam cond."];
+
+    return (
+      <div className="space-y-6 animate-in fade-in">
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+           <div><label className={UI.label}>Fecha</label><input type="date" className={UI.input} value={chkDate} onChange={e=>setChkDate(e.target.value)}/></div>
+           <div><label className={UI.label}>Línea</label><input className={UI.input} placeholder="Ej. L1" value={chkLine} onChange={e=>setChkLine(e.target.value)}/></div>
+           <div><label className={UI.label}>Proyecto</label><select className={UI.select} value={chkProject} onChange={e=>setChkProject(e.target.value)}><option value="">-- Seleccionar --</option>{uniqueProjects.map(p=><option key={p} value={p}>{p}</option>)}</select></div>
+           <div><label className={UI.label}>Modelo</label><select className={`${UI.select} bg-blue-50 text-blue-700`} value={chkModel} onChange={e=>setChkModel(e.target.value)}><option value="">-- Seleccionar --</option>{getModelsForProject(chkProject).map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+           <div><label className={UI.label}>Técnico</label><select className={UI.select} value={chkTech} onChange={e=>setChkTech(e.target.value)}><option value="">-- Seleccionar --</option>{dbStaff.filter(s=>s.role!=='Administrador').map(s=><option key={s.user_id} value={s.user_id}>{s.full_name}</option>)}</select></div>
+        </div>
+
+        {currentAssets.length > 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+             <div className="p-4 bg-slate-50 border-b flex justify-between items-center"><h3 className="font-black text-slate-700">Puntos de Inspección ({currentAssets.length} Activos)</h3><button onClick={handleSaveChecklist} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center shadow-lg hover:bg-green-700"><Save className="w-3 h-3 mr-2"/> Guardar Reporte</button></div>
+             <div className="overflow-x-auto">
+               <table className="w-full text-xs text-left">
+                 <thead className="bg-slate-100 text-slate-500 uppercase font-bold">
+                    <tr>
+                       <th className="p-3 border-r min-w-[200px]">Nombre del Equipo</th>
+                       {columns.map((col, idx) => <th key={idx} className="p-2 text-center border-r min-w-[80px] text-[9px]">{col}</th>)}
+                       <th className="p-3 min-w-[200px]">Observaciones</th>
+                    </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-100">
+                    {currentAssets.map(asset => (
+                       <tr key={asset.asset_id} className="hover:bg-blue-50/10">
+                          <td className="p-3 border-r font-bold text-slate-700 bg-slate-50/50">
+                             {asset.fixture_name}
+                             <div className="text-[9px] text-slate-400 font-normal">{asset.serial_number}</div>
+                          </td>
+                          {columns.map((_, idx) => (
+                             <td key={idx} className="p-1 border-r text-center">
+                                <select 
+                                   className={`w-full p-1 rounded text-center font-bold text-[10px] outline-none appearance-none cursor-pointer ${(chkData[`${asset.asset_id}_${idx+1}`] || 'OK') === 'OK' ? 'text-green-600 bg-green-50' : (chkData[`${asset.asset_id}_${idx+1}`] || 'OK') === 'NOK' ? 'text-red-600 bg-red-50' : 'text-slate-400 bg-slate-100'}`}
+                                   value={chkData[`${asset.asset_id}_${idx+1}`] || 'OK'}
+                                   onChange={(e) => handleCheckChange(asset.asset_id, idx+1, e.target.value)}
+                                >
+                                   <option value="OK">OK</option>
+                                   <option value="NOK">NOK</option>
+                                   <option value="NA">N/A</option>
+                                </select>
+                             </td>
+                          ))}
+                          <td className="p-1">
+                             <input className="w-full border-none bg-transparent p-2 text-xs outline-none focus:bg-yellow-50" placeholder="..." value={chkData[`${asset.asset_id}_remarks`] || ''} onChange={(e) => handleCheckChange(asset.asset_id, 'remarks', e.target.value)} />
+                          </td>
+                       </tr>
+                    ))}
+                 </tbody>
+               </table>
+             </div>
+          </div>
+        ) : (
+          <div className="text-center py-20 text-slate-300 font-black uppercase tracking-widest border-2 border-dashed rounded-3xl">Seleccione un Modelo para cargar la lista</div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="bg-slate-50 font-sans text-slate-800 h-screen flex overflow-hidden">
       {/* SIDEBAR */}
@@ -461,6 +598,7 @@ export default function App() {
           <NavButton icon={<ClipboardList />} label="Órdenes Trabajo" view="workorders" current={currentView} set={setCurrentView} />
           <NavButton icon={<Package />} label="Inventario" view="inventory" current={currentView} set={setCurrentView} />
           <NavButton icon={<Users />} label="Equipo" view="team" current={currentView} set={setCurrentView} />
+          <NavButton icon={<CheckSquare />} label="Checklist" view="checklist" current={currentView} set={setCurrentView} />
         </nav>
       </aside>
 
@@ -477,47 +615,42 @@ export default function App() {
               {currentView === 'workorders' && renderWorkOrdersView()}
               {currentView === 'team' && renderTeamView()}
               {currentView === 'inventory' && renderInventoryView()}
+              {currentView === 'checklist' && renderChecklistView()}
               {currentView === 'dashboard' && <div className="text-center py-20 text-slate-300 font-black italic uppercase tracking-widest">Dashboard V3 Próximamente...</div>}
             </>
           )}
         </main>
       </div>
 
-      {/* --- MODALES --- */}
+      {/* --- MODALES CON ESTILO STANDARIZADO --- */}
 
       {/* MODAL ACTIVO */}
       {activeModal === 'asset' && (
         <div className={UI.modalOverlay}>
-          <div className={`${UI.modalBox} max-w-2xl`}>
+          <div className={`${UI.modalBox} max-w-xl`}>
             <div className={UI.modalHeader}>
-               <h3>{isEditing ? 'Actualizar Activo' : 'Nuevo Activo'}</h3>
-               <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
+              <h3 className={UI.title}>{isEditing ? 'Actualizar Activo' : 'Nuevo Activo'}</h3>
+              <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
             </div>
             <form onSubmit={handleSaveAsset} className="space-y-4">
-               <div className="grid grid-cols-2 gap-4">
-                 <div><label className={UI.label}>Proyecto</label>
-                  <input list="projects" required className={UI.input} value={formAsset.project_name} onChange={e=>setFormAsset({...formAsset,project_name:e.target.value})}/>
-                  <datalist id="projects">{uniqueProjects.map(p=><option key={p} value={p}/>)}</datalist>
-                 </div>
-                 <div><label className={UI.label}>Modelo</label>
-                  <input list="models" required className={UI.input} value={formAsset.model_name} onChange={e=>setFormAsset({...formAsset,model_name:e.target.value})}/>
-                  <datalist id="models">{availableModels.map(m=><option key={m} value={m}/>)}</datalist>
-                 </div>
+               <div className={UI.grid2}>
+                 <div><label className={UI.label}>Proyecto</label><input list="projects" required className={UI.input} value={formAsset.project_name} onChange={e=>setFormAsset({...formAsset,project_name:e.target.value})}/><datalist id="projects">{uniqueProjects.map(p=><option key={p} value={p}/>)}</datalist></div>
+                 <div><label className={UI.label}>Modelo</label><input list="models" required className={UI.input} value={formAsset.model_name} onChange={e=>setFormAsset({...formAsset,model_name:e.target.value})}/><datalist id="models">{availableModels.map(m=><option key={m} value={m}/>)}</datalist></div>
                </div>
-               <div className="grid grid-cols-2 gap-4">
+               <div className={UI.grid2}>
                  <div><label className={UI.label}>Serial</label><input required className={UI.input} value={formAsset.serial_number} onChange={e=>setFormAsset({...formAsset,serial_number:e.target.value})}/></div>
                  <div><label className={UI.label}>Nombre</label><input required className={UI.input} value={formAsset.fixture_name} onChange={e=>setFormAsset({...formAsset,fixture_name:e.target.value})}/></div>
                </div>
-               <div className="grid grid-cols-2 gap-4">
+               <div className={UI.grid2}>
                  <div><label className={UI.label}>Línea</label><input required className={UI.input} value={formAsset.production_line} onChange={e=>setFormAsset({...formAsset,production_line:e.target.value})}/></div>
                  <div><label className={UI.label}>Estación</label><input required className={UI.input} value={formAsset.station} onChange={e=>setFormAsset({...formAsset,station:e.target.value})}/></div>
                </div>
                <div><label className={UI.label}>Estado</label><select className={UI.select} value={formAsset.condition_status} onChange={e=>setFormAsset({...formAsset,condition_status:e.target.value})}><option>Activo</option><option>Inactivo</option><option>En Mantenimiento</option></select></div>
-               <div className="grid grid-cols-2 gap-4">
+               <div className={UI.grid2}>
                  <div><label className={UI.label}>Foto (PNG)</label><input type="file" accept="image/png" className="w-full text-xs" onChange={e => setFormAsset({...formAsset, image_file: e.target.files[0]})}/></div>
                  <div><label className={UI.label}>Doc (PDF)</label><input type="file" accept="application/pdf" className="w-full text-xs" onChange={e => setFormAsset({...formAsset, doc_file: e.target.files[0]})}/></div>
                </div>
-               <div><label className={UI.label}>Descripción</label><textarea className={UI.input} value={formAsset.description} onChange={e=>setFormAsset({...formAsset,description:e.target.value})}/></div>
+               <div><label className={UI.label}>Descripción</label><textarea className={UI.textarea} value={formAsset.description} onChange={e=>setFormAsset({...formAsset,description:e.target.value})}/></div>
                <div className="flex gap-2">
                  <button type="submit" className={UI.btnPrimary}>Guardar</button>
                  <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
@@ -532,53 +665,40 @@ export default function App() {
         <div className={UI.modalOverlay}>
           <div className={`${UI.modalBox} max-w-2xl`}>
             <div className={UI.modalHeader}>
-               <h3>{isEditing ? 'Editar Orden' : 'Nueva Orden'}</h3>
+               <h3 className={UI.title}>{isEditing ? 'Editar Orden' : 'Nueva Orden'}</h3>
                <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
             </div>
             <form onSubmit={handleSaveWO} className="space-y-4">
-               {/* Sección de Selección de Activo */}
                {!isEditing ? (
                  <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                       <div><label className={UI.label}>1. Proyecto</label><select className={UI.select} value={formWO.project_filter} onChange={e=>setFormWO({...formWO, project_filter:e.target.value, model_filter:'', asset_id:''})}><option value="">-- Todos --</option>{getProjectsForModal().map(p=><option key={p} value={p}>{p}</option>)}</select></div>
-                       <div><label className={UI.label}>2. Modelo</label><select className={UI.select} value={formWO.model_filter} onChange={e=>setFormWO({...formWO, model_filter:e.target.value, asset_id:''})}><option value="">-- Todos --</option>{getModelsForModal(formWO.project_filter).map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+                    <div className={UI.grid2}>
+                       <div><label className="text-[10px] font-black text-blue-400 uppercase">1. Proyecto</label><select className="w-full border rounded-xl p-2 text-xs" value={formWO.project_filter} onChange={e=>setFormWO({...formWO, project_filter:e.target.value, model_filter:'', asset_id:''})}><option value="">-- Todos --</option>{getProjectsForModal().map(p=><option key={p} value={p}>{p}</option>)}</select></div>
+                       <div><label className="text-[10px] font-black text-blue-400 uppercase">2. Modelo</label><select className="w-full border rounded-xl p-2 text-xs" value={formWO.model_filter} onChange={e=>setFormWO({...formWO, model_filter:e.target.value, asset_id:''})}><option value="">-- Todos --</option>{getModelsForModal(formWO.project_filter).map(m=><option key={m} value={m}>{m}</option>)}</select></div>
                     </div>
-                    <div><label className={UI.label}>3. Activo</label><select required className={`${UI.select} border-blue-200 text-blue-700`} value={formWO.asset_id} onChange={e=>setFormWO({...formWO, asset_id:e.target.value})}><option value="">-- Seleccionar --</option>{getAssetsForModal(formWO.project_filter, formWO.model_filter).map(a=><option key={a.asset_id} value={a.asset_id}>{a.serial_number} - {a.fixture_name}</option>)}</select></div>
+                    <div><label className="text-[10px] font-black text-blue-600 uppercase">3. Activo</label><select required className="w-full bg-white border border-blue-200 rounded-xl p-3 text-sm font-bold text-blue-700" value={formWO.asset_id} onChange={e=>setFormWO({...formWO, asset_id:e.target.value})}><option value="">-- Seleccionar --</option>{getAssetsForModal(formWO.project_filter, formWO.model_filter).map(a=><option key={a.asset_id} value={a.asset_id}>{a.serial_number} - {a.fixture_name}</option>)}</select></div>
                  </div>
                ) : (
                  <div className="bg-slate-100 p-4 rounded-3xl border border-slate-200">
-                    <label className={UI.label}>Activo Vinculado </label>
-                    <div className="text-sm font-bold text-slate-700">
-                        {formWO.fixture_name || 'Sin Nombre'} 
-                        <span className="text-slate-400 font-normal ml-2">({formWO.serial_number || 'S/N'})</span>
-                    </div>
+                    <label className={UI.label}>Activo Vinculado (No editable)</label>
+                    <div className="text-sm font-bold text-slate-700">{formWO.fixture_name} ({formWO.serial_number})</div>
                  </div>
                )}
-               
-               <div className="grid grid-cols-2 gap-4">
+               <div className={UI.grid2}>
                   <div><label className={UI.label}>Ubicación</label><input className={UI.input} value={formWO.location} onChange={e=>setFormWO({...formWO, location:e.target.value})}/></div>
                   <div><label className={UI.label}>Tipo</label><select className={UI.select} value={formWO.type} onChange={e=>setFormWO({...formWO, type:e.target.value})}><option>Correctivo</option><option>Preventivo</option></select></div>
                </div>
-               <div className="grid grid-cols-2 gap-4">
+               <div className={UI.grid2}>
                   <div><label className={UI.label}>Inicio</label><input type="date" required className={UI.input} value={formWO.start_date} onChange={e=>setFormWO({...formWO, start_date:e.target.value})}/></div>
                   <div><label className={UI.label}>Fin</label><input type="date" required className={UI.input} value={formWO.end_date} onChange={e=>setFormWO({...formWO, end_date:e.target.value})}/></div>
                </div>
-               
-               <div><label className={UI.label}>Descripción de Actividad</label><textarea className={UI.input} placeholder="Detalle el trabajo a realizar..." value={formWO.description} onChange={e=>setFormWO({...formWO, description:e.target.value})}/></div>
-
-               <div className="grid grid-cols-2 gap-4">
+               <div><label className={UI.label}>Descripción de Actividad</label><textarea className={UI.textarea} value={formWO.description} onChange={e=>setFormWO({...formWO, description:e.target.value})}/></div>
+               <div className={UI.grid2}>
                   <div><label className={UI.label}>Prioridad</label><select className={UI.select} value={formWO.priority} onChange={e=>setFormWO({...formWO, priority:e.target.value})}><option>Baja</option><option>Media</option><option>Alta</option><option>Critica</option></select></div>
                   <div><label className={UI.label}>Autorizado Por</label><select className={UI.select} value={formWO.authorized_by} onChange={e=>setFormWO({...formWO, authorized_by:e.target.value})}><option value="">-- Seleccionar --</option>{dbStaff.filter(s=>['Ingeniero','Supervisor'].includes(s.role)).map(s=><option key={s.user_id} value={s.full_name}>{s.full_name}</option>)}</select></div>
                </div>
-               
-               <div className="bg-orange-50 p-4 rounded-3xl border border-orange-100 space-y-2"><label className="text-[11px] font-black text-orange-600 uppercase">Materiales (Autodescuento)</label><div className="flex gap-2"><select className="flex-1 border rounded-xl p-3 text-sm font-bold" value={formWO.material_id} onChange={e=>setFormWO({...formWO, material_id:e.target.value})}><option value="">-- Ninguno --</option>{dbInventory.map(i=><option key={i.item_id} value={i.item_id}>{i.name} (S: {i.stock_quantity})</option>)}</select><input type="number" className="w-20 border rounded-xl p-3 text-sm font-bold text-center" placeholder="Cant." value={formWO.material_qty} onChange={e=>setFormWO({...formWO, material_qty:e.target.value})}/></div></div>
-               
-               {isEditing && (
-                 <div><label className={UI.label}>Estado</label><select className={`${UI.select} text-blue-600`} value={formWO.status} onChange={e=>setFormWO({...formWO, status:e.target.value})}><option>Programado</option><option>Reprogramado</option><option>Completado</option><option>No Completado</option></select></div>
-               )}
-               
+               <div className="bg-orange-50 p-4 rounded-3xl border border-orange-100 space-y-2"><label className="text-[11px] font-black text-orange-600 uppercase">Materiales</label><div className="flex gap-2"><select className="flex-1 border rounded-xl p-3 text-sm font-bold" value={formWO.material_id} onChange={e=>setFormWO({...formWO, material_id:e.target.value})}><option value="">-- Ninguno --</option>{dbInventory.map(i=><option key={i.item_id} value={i.item_id}>{i.name} (S: {i.stock_quantity})</option>)}</select><input type="number" className="w-20 border rounded-xl p-3 text-sm font-bold text-center" placeholder="Cant." value={formWO.material_qty} onChange={e=>setFormWO({...formWO, material_qty:e.target.value})}/></div></div>
+               {isEditing && (<div><label className={UI.label}>Estado</label><select className={`${UI.select} text-blue-600`} value={formWO.status} onChange={e=>setFormWO({...formWO, status:e.target.value})}><option>Programado</option><option>Reprogramado</option><option>Completado</option><option>No Completado</option></select></div>)}
                <div><label className={UI.label}>Técnico</label><select className={UI.select} value={formWO.tech_id} onChange={e=>setFormWO({...formWO, tech_id:e.target.value})}><option value="">-- Seleccionar --</option>{dbStaff.map(s=><option key={s.user_id} value={s.user_id}>{s.full_name}</option>)}</select></div>
-               
                <div className="flex gap-2">
                  <button type="submit" className={UI.btnPrimary}>Confirmar</button>
                  <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
@@ -593,20 +713,20 @@ export default function App() {
         <div className={UI.modalOverlay}>
           <div className={`${UI.modalBox} max-w-md`}>
             <div className={UI.modalHeader}>
-              <h3>{isEditing?'Editar':'Nuevo'} Repuesto</h3>
+              <h3 className={UI.title}>{isEditing?'Editar':'Nuevo'} Repuesto</h3>
               <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
             </div>
             <form onSubmit={handleSaveItem} className="space-y-4">
                <div><label className={UI.label}>Código de Parte (ID)</label><input required className={UI.input} value={formItem.part_code} onChange={e=>setFormItem({...formItem,part_code:e.target.value})}/></div>
                <div><label className={UI.label}>Nombre del Repuesto</label><input required className={UI.input} value={formItem.name} onChange={e=>setFormItem({...formItem,name:e.target.value})}/></div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+               <div className={UI.grid2}>
                  <div><label className={UI.label}>Stock Actual</label><input type="number" required className={UI.input} value={formItem.stock_quantity} onChange={e=>setFormItem({...formItem,stock_quantity:e.target.value})}/></div>
                  <div><label className={UI.label}>Nivel Mínimo</label><input type="number" required className={UI.input} value={formItem.min_stock_level} onChange={e=>setFormItem({...formItem,min_stock_level:e.target.value})}/></div>
                </div>
                <div><label className={UI.label}>Costo Unitario ($)</label><input type="number" required className={UI.input} value={formItem.unit_cost} onChange={e=>setFormItem({...formItem,unit_cost:e.target.value})}/></div>
                <div><label className={UI.label}>Ubicación Almacén</label><input className={UI.input} placeholder="Ej. Bin A-2" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem,location_in_warehouse:e.target.value})}/></div>
                <div className="flex gap-2">
-                 <button className={UI.btnPrimary}>Confirmar Registro</button>
+                 <button className={UI.btnPrimary}>Confirmar</button>
                  <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                </div>
             </form>
@@ -619,14 +739,14 @@ export default function App() {
         <div className={UI.modalOverlay}>
           <div className={`${UI.modalBox} max-w-md`}>
             <div className={UI.modalHeader}>
-               <h3>{isEditing?'Editar':'Nuevo'} Personal</h3>
+               <h3 className={UI.title}>{isEditing?'Editar':'Nuevo'} Personal</h3>
                <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
             </div>
             <form onSubmit={handleSaveUser} className="space-y-4">
                <div><label className={UI.label}># Empleado</label><input required className={UI.input} value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/></div>
                <div><label className={UI.label}>Nombre Completo</label><input required className={UI.input} value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/></div>
                <div><label className={UI.label}>Email Corporativo</label><input type="email" required className={UI.input} value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/></div>
-               <div><label className={UI.label}>Teléfono de Contacto</label><input type="tel" className={UI.input} placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
+               <div><label className={UI.label}>Teléfono de Contacto</label><input type="tel" className={UI.input} value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
                <div><label className={UI.label}>Rol Técnico</label><select className={UI.select} value={formUser.role} onChange={e=>setFormUser({...formUser,role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select></div>
                <div className="flex gap-2">
                  <button className={UI.btnPrimary}>Confirmar</button>
@@ -637,46 +757,41 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL HISTORIAL TÉCNICO --- */}
+      {/* MODAL HISTORIAL TÉCNICO */}
       {techHistoryModal.show && (
          <div className={UI.modalOverlay}>
             <div className={`${UI.modalBox} max-w-4xl`}>
                 <div className={UI.modalHeader}>
                     <div>
-                        <h3>{techHistoryModal.type === 'pending' ? 'ACTIVIDADES PENDIENTES' : 'HISTORIAL COMPLETO'}</h3>
-                        <p className="text-slate-400 font-bold text-sm mt-1">{techHistoryModal.tech?.full_name} ({techHistoryModal.tech?.employee_number})</p>
+                        <h3 className={UI.title}>{techHistoryModal.type === 'pending' ? 'Actividades Pendientes' : 'Historial Completo'}</h3>
+                        <p className="text-slate-400 font-bold text-sm mt-1">{techHistoryModal.tech?.full_name}</p>
                     </div>
                     <button onClick={closeTechHistory} className={UI.closeBtn}><X/></button>
                 </div>
-                
                 {(() => {
+                    // COMPARACIÓN DE ID ROBUSTA (String vs Number)
                     const techOrders = dbWorkOrders.filter(wo => wo.assigned_user_id == techHistoryModal.tech?.user_id);
-                    const displayedOrders = techHistoryModal.type === 'pending' 
-                        ? techOrders.filter(wo => !['Completado', 'No Completado'].includes(wo.status))
-                        : techOrders;
+                    const displayedOrders = techHistoryModal.type === 'pending' ? techOrders.filter(wo => !['Completado', 'No Completado'].includes(wo.status)) : techOrders;
                     
-                    if (displayedOrders.length === 0) return <div className="text-center py-20 text-slate-300 font-black italic">NO HAY REGISTROS DISPONIBLES</div>;
+                    if (displayedOrders.length === 0) return <div className="text-center py-20 text-slate-300 font-black italic">Sin registros disponibles</div>;
 
                     return (
                         <div className="overflow-x-auto">
                             <table className="w-full text-xs text-left">
-                                <thead className="bg-slate-50 text-slate-400 uppercase font-black">
-                                    <tr><th className="p-4">OT #</th><th className="p-4">Activo</th><th className="p-4">Tarea</th><th className="p-4">Fechas</th><th className="p-4">Prioridad</th><th className="p-4">Estado</th></tr>
-                                </thead>
+                                <thead className="bg-slate-50 text-slate-400 uppercase font-black"><tr><th className="p-4">OT #</th><th className="p-4">Activo</th><th className="p-4">Tarea</th><th className="p-4">Prioridad</th><th className="p-4">Estado</th></tr></thead>
                                 <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
                                     {displayedOrders.map(ot => (
-                                        <tr key={ot.wo_id} className="hover:bg-blue-50/20">
+                                        <tr key={ot.wo_id}>
                                             <td className="p-4 font-black text-blue-600">#{ot.wo_id}</td>
                                             <td className="p-4 font-bold">{ot.fixture_name}</td>
-                                            <td className="p-4 max-w-xs truncate">{ot.title || ot.description}</td>
-                                            <td className="p-4">{formatDate(ot.scheduled_start)} - {formatDate(ot.scheduled_end)}</td>
+                                            <td className="p-4 truncate max-w-xs">{ot.title || ot.description}</td>
                                             <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-black ${ot.priority==='Critica'?'bg-red-100 text-red-600':'bg-blue-50 text-blue-600'}`}>{ot.priority}</span></td>
                                             <td className="p-4">
                                                 {techHistoryModal.type === 'pending' ? (
-                                                    <select className="border rounded p-2 text-xs font-bold text-slate-700 bg-white outline-none focus:ring-2 focus:ring-blue-500" value={ot.status} onChange={(e) => handleUpdateStatusFromTable(ot.wo_id, e.target.value)}>
+                                                    <select className="border rounded p-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500" value={ot.status} onChange={(e) => handleUpdateStatusFromTable(ot.wo_id, e.target.value)}>
                                                         <option>Programado</option><option>Reprogramado</option><option>En Progreso</option><option>Completado</option><option>No Completado</option>
                                                     </select>
-                                                ) : <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${ot.status === 'Completado' ? 'bg-green-100 text-green-800 border-green-200' : ot.status === 'No Completado' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>{ot.status}</span>}
+                                                ) : <span className="font-bold">{ot.status}</span>}
                                             </td>
                                         </tr>
                                     ))}
