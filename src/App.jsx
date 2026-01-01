@@ -39,7 +39,6 @@ export default function App() {
     start_date: '', end_date: '', material_id: '', material_qty: 0, tech_id: '', 
     authorized_by: '', status: 'Programado', description: '', 
     project_filter: '', model_filter: '',
-    // Campos visuales estáticos para edición
     fixture_name: '', serial_number: ''
   };
   const initialItem = { id: '', part_code: '', name: '', stock_quantity: 0, min_stock_level: 5, unit_cost: 0, location_in_warehouse: '' };
@@ -151,7 +150,7 @@ export default function App() {
         doc.rect(0, 0, 210, 40, 'F');
         doc.setTextColor(255);
         doc.setFontSize(22);
-        doc.text("ORDEN DE TRABAJO", 105, 20, null, null, "center");
+        doc.text("ORDEN DE MANTENIMIENTO", 105, 20, null, null, "center");
         doc.setFontSize(10);
         doc.text(`FOLIO: OT-${ot.wo_id} | FECHA: ${new Date().toLocaleDateString()}`, 105, 30, null, null, "center");
 
@@ -173,7 +172,6 @@ export default function App() {
         const splitDesc = doc.splitTextToSize(ot.title || ot.description || 'Sin descripción.', 180);
         doc.text(splitDesc, 14, doc.lastAutoTable.finalY + 17);
 
-        // Ajustar Y para la siguiente tabla
         let nextY = doc.lastAutoTable.finalY + 20 + (splitDesc.length * 5);
 
         doc.text("3. PROGRAMACIÓN", 14, nextY);
@@ -350,9 +348,8 @@ export default function App() {
                   <div className="text-slate-700 font-bold">{formatDate(ot.scheduled_start)}</div>
                   <div className="text-[10px] text-slate-400 italic">Fin: {formatDate(ot.scheduled_end)}</div>
                 </td>
-                {/* NUEVA COLUMNA ACTIVIDAD */}
+                {/* COLUMNA ACTIVIDAD */}
                 <td className="px-5 py-5 text-slate-600 max-w-xs truncate" title={ot.title || ot.description}>{ot.title || ot.description}</td>
-                
                 <td className="px-4 py-5 text-center">
                     <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>
                         {ot.priority ? ot.priority.toUpperCase() : 'MEDIA'}
@@ -380,9 +377,9 @@ export default function App() {
                           start_date: ot.scheduled_start?.split('T')[0], 
                           end_date: ot.scheduled_end?.split('T')[0],
                           description: ot.title || ot.description,
-                          // Guardamos datos estáticos para mostrar en el modal de edición
                           fixture_name: ot.fixture_name,
-                          serial_number: ot.serial_number
+                          serial_number: ot.serial_number,
+                          tech_id: ot.assigned_user_id // Asegurar que el técnico se cargue al editar
                         }); 
                         setIsEditing(true); 
                         setActiveModal('wo'); 
@@ -551,7 +548,7 @@ export default function App() {
                   <div><label className="text-[11px] font-black text-slate-400 uppercase">Autorizado Por</label><select className="w-full bg-slate-50 border rounded-2xl p-3 text-sm" value={formWO.authorized_by} onChange={e=>setFormWO({...formWO, authorized_by:e.target.value})}><option value="">-- Seleccionar --</option>{dbStaff.filter(s=>['Ingeniero','Supervisor'].includes(s.role)).map(s=><option key={s.user_id} value={s.full_name}>{s.full_name}</option>)}</select></div>
                </div>
                
-               <div className="bg-orange-50 p-4 rounded-3xl border border-orange-100 space-y-2"><label className="text-[11px] font-black text-orange-600 uppercase">Materiales</label><div className="flex gap-2"><select className="flex-1 border rounded-xl p-3 text-sm font-bold" value={formWO.material_id} onChange={e=>setFormWO({...formWO, material_id:e.target.value})}><option value="">-- Ninguno --</option>{dbInventory.map(i=><option key={i.item_id} value={i.item_id}>{i.name} (S: {i.stock_quantity})</option>)}</select><input type="number" className="w-20 border rounded-xl p-3 text-sm font-bold text-center" placeholder="Cant." value={formWO.material_qty} onChange={e=>setFormWO({...formWO, material_qty:e.target.value})}/></div></div>
+               <div className="bg-orange-50 p-4 rounded-3xl border border-orange-100 space-y-2"><label className="text-[11px] font-black text-orange-600 uppercase">Materiales (Autodescuento)</label><div className="flex gap-2"><select className="flex-1 border rounded-xl p-3 text-sm font-bold" value={formWO.material_id} onChange={e=>setFormWO({...formWO, material_id:e.target.value})}><option value="">-- Ninguno --</option>{dbInventory.map(i=><option key={i.item_id} value={i.item_id}>{i.name} (S: {i.stock_quantity})</option>)}</select><input type="number" className="w-20 border rounded-xl p-3 text-sm font-bold text-center" placeholder="Cant." value={formWO.material_qty} onChange={e=>setFormWO({...formWO, material_qty:e.target.value})}/></div></div>
                
                {isEditing && (
                  <div><label className="text-[11px] font-black text-slate-400 uppercase">Estado</label><select className="w-full bg-slate-50 border rounded-2xl p-3 text-sm text-blue-600 font-bold" value={formWO.status} onChange={e=>setFormWO({...formWO, status:e.target.value})}><option>Programado</option><option>Reprogramado</option><option>Completado</option><option>No Completado</option></select></div>
@@ -568,11 +565,77 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL INVENTARIO */}
-      {activeModal === 'item' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"><div className="bg-white rounded-[2rem] p-6 w-full max-w-md"><h3 className="font-black text-lg mb-4">{isEditing?'Editar':'Nuevo'} Repuesto</h3><form onSubmit={handleSaveItem} className="space-y-4"><input className="border w-full p-3 rounded-xl" placeholder="SKU" value={formItem.part_code} onChange={e=>setFormItem({...formItem,part_code:e.target.value})}/><input className="border w-full p-3 rounded-xl" placeholder="Nombre" value={formItem.name} onChange={e=>setFormItem({...formItem,name:e.target.value})}/><div className="grid grid-cols-2 gap-4"><input type="number" className="border p-3 rounded-xl" placeholder="Stock" value={formItem.stock_quantity} onChange={e=>setFormItem({...formItem,stock_quantity:e.target.value})}/><input type="number" className="border p-3 rounded-xl" placeholder="Mínimo" value={formItem.min_stock_level} onChange={e=>setFormItem({...formItem,min_stock_level:e.target.value})}/></div><input className="border w-full p-3 rounded-xl" placeholder="Ubicación" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem,location_in_warehouse:e.target.value})}/><button className="bg-slate-800 text-white w-full py-3 rounded-xl font-bold">Guardar</button><button type="button" onClick={()=>setActiveModal(null)} className="w-full text-center text-slate-400 text-xs font-bold py-2">Cancelar</button></form></div></div>}
+      {/* MODAL INVENTARIO (EXPANDIDO Y RESPONSIVO CON ETIQUETAS) */}
+      {activeModal === 'item' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-6 sm:p-10 my-8">
+            <h3 className="text-2xl font-black text-slate-800 mb-8 uppercase tracking-tighter border-b pb-4">{isEditing ? 'Editar Repuesto' : 'Nuevo Registro de Inventario'}</h3>
+            <form onSubmit={handleSaveItem} className="space-y-5">
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Código de Parte (ID)</label>
+                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-mono" placeholder="Ej. SKU-12345" value={formItem.part_code} onChange={e=>setFormItem({...formItem, part_code:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre del Repuesto</label>
+                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" placeholder="Ej. Sensor Óptico" value={formItem.name} onChange={e=>setFormItem({...formItem, name:e.target.value})}/>
+               </div>
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div className="space-y-1">
+                   <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Stock Actual</label>
+                   <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.stock_quantity} onChange={e=>setFormItem({...formItem, stock_quantity:e.target.value})}/>
+                 </div>
+                 <div className="space-y-1">
+                   <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nivel Mínimo</label>
+                   <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.min_stock_level} onChange={e=>setFormItem({...formItem, min_stock_level:e.target.value})}/>
+                 </div>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Costo Unitario ($)</label>
+                 <input type="number" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formItem.unit_cost} onChange={e=>setFormItem({...formItem, unit_cost:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Ubicación Almacén</label>
+                 <input className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" placeholder="Ej. Bin A-2, Estante 1" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem, location_in_warehouse:e.target.value})}/>
+               </div>
+               <div className="flex gap-2">
+                 <button className="w-full bg-slate-800 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl">Confirmar</button>
+                 <button type="button" onClick={()=>setActiveModal(null)} className="w-full bg-slate-200 text-slate-500 py-4 rounded-2xl font-black uppercase">Cancelar</button>
+               </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL USUARIO */}
-      {activeModal === 'user' && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"><div className="bg-white rounded-[2rem] p-6 w-full max-w-md"><h3 className="font-black text-lg mb-4">{isEditing?'Editar':'Nuevo'} Personal</h3><form onSubmit={handleSaveUser} className="space-y-4"><input className="border w-full p-3 rounded-xl" placeholder="# Empleado" value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/><input className="border w-full p-3 rounded-xl" placeholder="Nombre" value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/><input className="border w-full p-3 rounded-xl" placeholder="Email" value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/><select className="border w-full p-3 rounded-xl" value={formUser.role} onChange={e=>setFormUser({...formUser,role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select><button className="bg-blue-600 text-white w-full py-3 rounded-xl font-bold">Guardar</button><button type="button" onClick={()=>setActiveModal(null)} className="w-full text-center text-slate-400 text-xs font-bold py-2">Cancelar</button></form></div></div>}
+      {activeModal === 'user' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-6 sm:p-10 my-8">
+            <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase tracking-tighter border-b border-slate-50 pb-4">{isEditing ? 'Editar Miembro' : 'Nuevo Miembro'}</h3>
+            <form onSubmit={handleSaveUser} className="space-y-4">
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest"># Empleado</label>
+                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-black" value={formUser.employee_number} onChange={e=>setFormUser({...formUser, employee_number:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nombre Completo</label>
+                 <input required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.full_name} onChange={e=>setFormUser({...formUser, full_name:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Email Corporativo</label>
+                 <input type="email" required className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-medium" value={formUser.email} onChange={e=>setFormUser({...formUser, email:e.target.value})}/>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Rol Técnico</label>
+                 <select className="w-full bg-slate-50 border rounded-2xl p-3.5 sm:p-4 text-sm font-bold" value={formUser.role} onChange={e=>setFormUser({...formUser, role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select>
+               </div>
+               <div className="flex gap-2">
+                 <button className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl">Confirmar</button>
+                 <button type="button" onClick={()=>setActiveModal(null)} className="w-full bg-slate-200 text-slate-500 py-4 rounded-2xl font-black uppercase">Cancelar</button>
+               </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );
