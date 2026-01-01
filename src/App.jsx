@@ -36,28 +36,21 @@ export default function App() {
   const [chkProject, setChkProject] = useState('');
   const [chkModel, setChkModel] = useState('');
   const [chkTech, setChkTech] = useState('');
-  const [chkData, setChkData] = useState({}); 
+  const [chkData, setChkData] = useState({}); // Almacena valores { assetId_checkIndex: '' }
 
   // --- ESTILOS ESTANDARIZADOS (UI SYSTEM) ---
   const UI = {
-    // Contenedores y Modales
     modalOverlay: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto",
     modalBox: "bg-white rounded-[2.5rem] shadow-2xl w-full p-8 sm:p-10 my-8 transition-all relative overflow-hidden",
     modalHeader: "flex justify-between items-center mb-8 border-b border-slate-100 pb-4",
     title: "text-2xl font-black text-slate-800 uppercase tracking-tighter",
-    
-    // Formularios
-    label: "text-xs font-black text-slate-500 uppercase tracking-widest mb-2 block",
+    label: "text-xs font-black text-slate-700 uppercase tracking-widest mb-2 block",
     input: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all placeholder:text-slate-300",
     select: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all appearance-none",
     textarea: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all h-24 resize-none",
-    
-    // Botones
     btnPrimary: "w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase tracking-widest shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300 transition-all active:scale-[0.98]",
     btnSecondary: "w-full bg-slate-100 text-slate-400 py-3 rounded-xl font-bold uppercase tracking-wide hover:bg-slate-200 hover:text-slate-600 transition-all",
     closeBtn: "p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors",
-    
-    // Grid System
     grid2: "grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6",
   };
 
@@ -325,25 +318,43 @@ export default function App() {
     apiRequest(url, isEditing ? 'PUT' : 'POST', formUser);
   };
 
-  // --- HANDLER CHECKLIST ---
+  // --- HANDLER CHECKLIST (ACTUALIZADO) ---
   const handleSaveChecklist = async () => {
      if(!chkDate || !chkModel || !chkTech) return alert("Complete Fecha, Modelo y Técnico.");
+     
      const assetsToCheck = dbAssets.filter(a => a.model_name === chkModel);
      if(assetsToCheck.length === 0) return alert("No hay activos para este modelo.");
+
+     // Validar que todos los campos tengan respuesta
+     const missing = assetsToCheck.some(asset => {
+        return ![1,2,3,4,5,6,7,8,9].every(i => chkData[`${asset.asset_id}_${i}`]);
+     });
+
+     if (missing) return alert("Debe responder OK, NOK o NA en todos los puntos.");
+
      const items = assetsToCheck.map(asset => ({
         asset_id: asset.asset_id,
-        check_1: chkData[`${asset.asset_id}_1`] || 'OK',
-        check_2: chkData[`${asset.asset_id}_2`] || 'OK',
-        check_3: chkData[`${asset.asset_id}_3`] || 'OK',
-        check_4: chkData[`${asset.asset_id}_4`] || 'OK',
-        check_5: chkData[`${asset.asset_id}_5`] || 'OK',
-        check_6: chkData[`${asset.asset_id}_6`] || 'OK',
-        check_7: chkData[`${asset.asset_id}_7`] || 'OK',
-        check_8: chkData[`${asset.asset_id}_8`] || 'OK',
-        check_9: chkData[`${asset.asset_id}_9`] || 'OK',
+        check_1: chkData[`${asset.asset_id}_1`],
+        check_2: chkData[`${asset.asset_id}_2`],
+        check_3: chkData[`${asset.asset_id}_3`],
+        check_4: chkData[`${asset.asset_id}_4`],
+        check_5: chkData[`${asset.asset_id}_5`],
+        check_6: chkData[`${asset.asset_id}_6`],
+        check_7: chkData[`${asset.asset_id}_7`],
+        check_8: chkData[`${asset.asset_id}_8`],
+        check_9: chkData[`${asset.asset_id}_9`],
         remarks: chkData[`${asset.asset_id}_remarks`] || ''
      }));
-     const payload = { date: chkDate, project: chkProject, model: chkModel, line: chkLine, tech_id: chkTech, items };
+
+     const payload = {
+        date: chkDate,
+        project: chkProject,
+        model: chkModel,
+        line: chkLine,
+        tech_id: chkTech,
+        items
+     };
+
      try {
         const res = await fetch(`${BASE_URL}/daily-checklists`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
         if(res.ok) { alert("Checklist Guardado"); setChkData({}); } 
@@ -440,9 +451,7 @@ export default function App() {
                 </td>
                 <td className="px-5 py-5 text-slate-600 max-w-xs truncate" title={ot.title || ot.description}>{ot.title || ot.description}</td>
                 <td className="px-4 py-5 text-center">
-                    <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>
-                        {ot.priority ? ot.priority.toUpperCase() : 'MEDIA'}
-                    </span>
+                    <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>{ot.priority ? ot.priority.toUpperCase() : 'MEDIA'}</span>
                 </td>
                 <td className="px-5 py-5 text-slate-500 italic max-w-[150px] truncate">{ot.materials_used || 'Ninguno'}</td>
                 <td className="px-5 py-5 text-slate-800 font-bold">{ot.tech_name || 'Sin asignar'}</td>
@@ -536,7 +545,7 @@ export default function App() {
            <div><label className={UI.label}>Línea</label><input className={UI.input} placeholder="Ej. L1" value={chkLine} onChange={e=>setChkLine(e.target.value)}/></div>
            <div><label className={UI.label}>Proyecto</label><select className={UI.select} value={chkProject} onChange={e=>setChkProject(e.target.value)}><option value="">-- Seleccionar --</option>{uniqueProjects.map(p=><option key={p} value={p}>{p}</option>)}</select></div>
            <div><label className={UI.label}>Modelo</label><select className={`${UI.select} bg-blue-50 text-blue-700`} value={chkModel} onChange={e=>setChkModel(e.target.value)}><option value="">-- Seleccionar --</option>{getModelsForProject(chkProject).map(m=><option key={m} value={m}>{m}</option>)}</select></div>
-           <div><label className={UI.label}>Técnico</label><select className={UI.select} value={chkTech} onChange={e=>setChkTech(e.target.value)}><option value="">-- Seleccionar --</option>{dbStaff.filter(s=>s.role!=='Administrador').map(s=><option key={s.user_id} value={s.user_id}>{s.full_name}</option>)}</select></div>
+           <div><label className={UI.label}>Técnico Responsable</label><select className={UI.select} value={chkTech} onChange={e=>setChkTech(e.target.value)}><option value="">-- Seleccionar --</option>{dbStaff.filter(s=>s.role!=='Administrador').map(s=><option key={s.user_id} value={s.user_id}>{s.full_name}</option>)}</select></div>
         </div>
 
         {currentAssets.length > 0 ? (
@@ -561,13 +570,19 @@ export default function App() {
                           {columns.map((_, idx) => (
                              <td key={idx} className="p-1 border-r text-center">
                                 <select 
-                                   className={`w-full p-1 rounded text-center font-bold text-[10px] outline-none appearance-none cursor-pointer ${(chkData[`${asset.asset_id}_${idx+1}`] || 'OK') === 'OK' ? 'text-green-600 bg-green-50' : (chkData[`${asset.asset_id}_${idx+1}`] || 'OK') === 'NOK' ? 'text-red-600 bg-red-50' : 'text-slate-400 bg-slate-100'}`}
-                                   value={chkData[`${asset.asset_id}_${idx+1}`] || 'OK'}
+                                   className={`w-full p-1 rounded text-center font-bold text-[10px] outline-none appearance-none cursor-pointer ${
+                                      chkData[`${asset.asset_id}_${idx+1}`] === 'OK' ? 'text-green-700 bg-green-50 border border-green-200' : 
+                                      chkData[`${asset.asset_id}_${idx+1}`] === 'NOK' ? 'text-red-700 bg-red-50 border border-red-200' : 
+                                      chkData[`${asset.asset_id}_${idx+1}`] === 'NA' ? 'text-yellow-700 bg-yellow-50 border border-yellow-200' : 
+                                      'text-slate-400 bg-white border border-slate-200'
+                                   }`}
+                                   value={chkData[`${asset.asset_id}_${idx+1}`] || ''}
                                    onChange={(e) => handleCheckChange(asset.asset_id, idx+1, e.target.value)}
                                 >
+                                   <option value="">-</option>
                                    <option value="OK">OK</option>
                                    <option value="NOK">NOK</option>
-                                   <option value="NA">N/A</option>
+                                   <option value="NA">NA</option>
                                 </select>
                              </td>
                           ))}
@@ -622,7 +637,7 @@ export default function App() {
         </main>
       </div>
 
-      {/* --- MODALES CON ESTILO STANDARIZADO --- */}
+      {/* --- MODALES --- */}
 
       {/* MODAL ACTIVO */}
       {activeModal === 'asset' && (
@@ -672,10 +687,10 @@ export default function App() {
                {!isEditing ? (
                  <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100 space-y-4">
                     <div className={UI.grid2}>
-                       <div><label className="text-[10px] font-black text-blue-400 uppercase">1. Proyecto</label><select className="w-full border rounded-xl p-2 text-xs" value={formWO.project_filter} onChange={e=>setFormWO({...formWO, project_filter:e.target.value, model_filter:'', asset_id:''})}><option value="">-- Todos --</option>{getProjectsForModal().map(p=><option key={p} value={p}>{p}</option>)}</select></div>
-                       <div><label className="text-[10px] font-black text-blue-400 uppercase">2. Modelo</label><select className="w-full border rounded-xl p-2 text-xs" value={formWO.model_filter} onChange={e=>setFormWO({...formWO, model_filter:e.target.value, asset_id:''})}><option value="">-- Todos --</option>{getModelsForModal(formWO.project_filter).map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+                       <div><label className={UI.label}>1. Proyecto</label><select className={UI.select} value={formWO.project_filter} onChange={e=>setFormWO({...formWO, project_filter:e.target.value, model_filter:'', asset_id:''})}><option value="">-- Todos --</option>{getProjectsForModal().map(p=><option key={p} value={p}>{p}</option>)}</select></div>
+                       <div><label className={UI.label}>2. Modelo</label><select className={UI.select} value={formWO.model_filter} onChange={e=>setFormWO({...formWO, model_filter:e.target.value, asset_id:''})}><option value="">-- Todos --</option>{getModelsForModal(formWO.project_filter).map(m=><option key={m} value={m}>{m}</option>)}</select></div>
                     </div>
-                    <div><label className="text-[10px] font-black text-blue-600 uppercase">3. Activo</label><select required className="w-full bg-white border border-blue-200 rounded-xl p-3 text-sm font-bold text-blue-700" value={formWO.asset_id} onChange={e=>setFormWO({...formWO, asset_id:e.target.value})}><option value="">-- Seleccionar --</option>{getAssetsForModal(formWO.project_filter, formWO.model_filter).map(a=><option key={a.asset_id} value={a.asset_id}>{a.serial_number} - {a.fixture_name}</option>)}</select></div>
+                    <div><label className={UI.label}>3. Activo</label><select required className={`${UI.select} border-blue-200 text-blue-700`} value={formWO.asset_id} onChange={e=>setFormWO({...formWO, asset_id:e.target.value})}><option value="">-- Seleccionar --</option>{getAssetsForModal(formWO.project_filter, formWO.model_filter).map(a=><option key={a.asset_id} value={a.asset_id}>{a.serial_number} - {a.fixture_name}</option>)}</select></div>
                  </div>
                ) : (
                  <div className="bg-slate-100 p-4 rounded-3xl border border-slate-200">
@@ -726,7 +741,7 @@ export default function App() {
                <div><label className={UI.label}>Costo Unitario ($)</label><input type="number" required className={UI.input} value={formItem.unit_cost} onChange={e=>setFormItem({...formItem,unit_cost:e.target.value})}/></div>
                <div><label className={UI.label}>Ubicación Almacén</label><input className={UI.input} placeholder="Ej. Bin A-2" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem,location_in_warehouse:e.target.value})}/></div>
                <div className="flex gap-2">
-                 <button className={UI.btnPrimary}>Confirmar</button>
+                 <button className={UI.btnPrimary}>Confirmar Registro</button>
                  <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                </div>
             </form>
@@ -746,7 +761,7 @@ export default function App() {
                <div><label className={UI.label}># Empleado</label><input required className={UI.input} value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/></div>
                <div><label className={UI.label}>Nombre Completo</label><input required className={UI.input} value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/></div>
                <div><label className={UI.label}>Email Corporativo</label><input type="email" required className={UI.input} value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/></div>
-               <div><label className={UI.label}>Teléfono de Contacto</label><input type="tel" className={UI.input} value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
+               <div><label className={UI.label}>Teléfono de Contacto</label><input type="tel" className={UI.input} placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
                <div><label className={UI.label}>Rol Técnico</label><select className={UI.select} value={formUser.role} onChange={e=>setFormUser({...formUser,role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select></div>
                <div className="flex gap-2">
                  <button className={UI.btnPrimary}>Confirmar</button>
@@ -757,19 +772,19 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL HISTORIAL TÉCNICO */}
+      {/* --- MODAL HISTORIAL TÉCNICO --- */}
       {techHistoryModal.show && (
          <div className={UI.modalOverlay}>
             <div className={`${UI.modalBox} max-w-4xl`}>
                 <div className={UI.modalHeader}>
                     <div>
-                        <h3 className={UI.title}>{techHistoryModal.type === 'pending' ? 'Actividades Pendientes' : 'Historial Completo'}</h3>
+                        <h3 className={UI.title}>{techHistoryModal.type === 'pending' ? 'ACTIVIDADES PENDIENTES' : 'HISTORIAL COMPLETO'}</h3>
                         <p className="text-slate-400 font-bold text-sm mt-1">{techHistoryModal.tech?.full_name}</p>
                     </div>
                     <button onClick={closeTechHistory} className={UI.closeBtn}><X/></button>
                 </div>
                 {(() => {
-                    // COMPARACIÓN DE ID ROBUSTA (String vs Number)
+                    // COMPARACIÓN DE ID ROBUSTA
                     const techOrders = dbWorkOrders.filter(wo => wo.assigned_user_id == techHistoryModal.tech?.user_id);
                     const displayedOrders = techHistoryModal.type === 'pending' ? techOrders.filter(wo => !['Completado', 'No Completado'].includes(wo.status)) : techOrders;
                     
@@ -791,7 +806,7 @@ export default function App() {
                                                     <select className="border rounded p-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500" value={ot.status} onChange={(e) => handleUpdateStatusFromTable(ot.wo_id, e.target.value)}>
                                                         <option>Programado</option><option>Reprogramado</option><option>En Progreso</option><option>Completado</option><option>No Completado</option>
                                                     </select>
-                                                ) : <span className="font-bold">{ot.status}</span>}
+                                                ) : <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${ot.status === 'Completado' ? 'bg-green-100 text-green-800 border-green-200' : ot.status === 'No Completado' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>{ot.status}</span>}
                                             </td>
                                         </tr>
                                     ))}
