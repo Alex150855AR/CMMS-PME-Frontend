@@ -646,3 +646,4 @@ const NavButton = ({ icon, label, view, current, set }) => (
     <span className={`mr-4 ${current === view ? 'text-blue-600' : 'text-slate-300'}`}>{icon}</span>{label}
   </button>
 );
+// Version Estable (Modulos: Activos, Órdenes de Trabajo, Inventario)
