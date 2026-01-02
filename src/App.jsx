@@ -19,12 +19,17 @@ export default function App() {
   // Estado para el Modal de Historial Técnico
   const [techHistoryModal, setTechHistoryModal] = useState({ show: false, tech: null, type: 'pending' });
 
+  // Estado para Ver Detalle de Checklist
+  const [viewChecklistData, setViewChecklistData] = useState(null);
+
   // --- ESTADOS DE DATOS ---
   const [dbAssets, setDbAssets] = useState([]);      
   const [dbWorkOrders, setDbWorkOrders] = useState([]); 
   const [dbInventory, setDbInventory] = useState([]);
   const [dbStaff, setDbStaff] = useState([]); 
-  const [dbLogs, setDbLogs] = useState([]); // <--- NUEVO: BITÁCORA
+  const [dbLogs, setDbLogs] = useState([]); 
+  const [dbChecklists, setDbChecklists] = useState([]); 
+  const [bitacoraTab, setBitacoraTab] = useState('workorders');
   
   // --- ESTADOS DE FILTRADO (ACTIVOS) ---
   const [searchTerm, setSearchTerm] = useState(''); 
@@ -55,6 +60,16 @@ export default function App() {
     headerBtn: "bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all flex items-center gap-2 text-sm active:scale-95 whitespace-nowrap",
     closeBtn: "p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors",
     grid2: "grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6",
+    tableHeader: "bg-slate-50 text-slate-400 uppercase font-black tracking-widest border-b text-xs text-left p-4",
+    tableRow: "hover:bg-blue-50/10 transition-colors border-b border-slate-100",
+    tableCell: "p-4 text-xs font-medium text-slate-600",
+    statusBadge: (status) => {
+        let colors = 'bg-gray-100 text-gray-500 border-gray-200';
+        if (status === 'Completado') colors = 'bg-green-100 text-green-700 border-green-200';
+        if (status === 'No Completado') colors = 'bg-red-100 text-red-700 border-red-200';
+        if (status === 'Reprogramado') colors = 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        return `px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${colors}`;
+    }
   };
 
   // --- FORMULARIOS ---
@@ -89,7 +104,6 @@ export default function App() {
       s1.id = 'jspdf-script';
       s1.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
       document.body.appendChild(s1);
-      
       s1.onload = () => {
           const s2 = document.createElement('script');
           s2.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js";
@@ -103,7 +117,7 @@ export default function App() {
 
   const loadAllData = async () => {
     setLoading(true);
-    await Promise.allSettled([fetchAssets(), fetchWorkOrders(), fetchInventory(), fetchUsers(), fetchLogs()]);
+    await Promise.allSettled([fetchAssets(), fetchWorkOrders(), fetchInventory(), fetchUsers(), fetchLogs(), fetchChecklists()]);
     setLoading(false);
   };
 
@@ -115,37 +129,21 @@ export default function App() {
     } catch(e) { setServerStatus('offline'); }
   };
 
-  const fetchWorkOrders = async () => { 
-    try { 
-      const res = await fetch(`${BASE_URL}/work-orders`); 
-      if(res.ok) {
-        const data = await res.json();
-        data.sort((a, b) => a.wo_id - b.wo_id); 
-        setDbWorkOrders(data); 
-      }
-    } catch(e){} 
-  };
+  const fetchWorkOrders = async () => { try { const res = await fetch(`${BASE_URL}/work-orders`); if(res.ok) { const d = await res.json(); d.sort((a,b)=>a.wo_id-b.wo_id); setDbWorkOrders(d); } } catch(e){} };
   const fetchInventory = async () => { try { const res = await fetch(`${BASE_URL}/inventory`); if(res.ok) setDbInventory(await res.json()); } catch(e){} };
   const fetchUsers = async () => { try { const res = await fetch(`${BASE_URL}/users`); if(res.ok) setDbStaff(await res.json()); } catch(e){} };
   const fetchLogs = async () => { try { const res = await fetch(`${BASE_URL}/audit-logs`); if(res.ok) setDbLogs(await res.json()); } catch(e){} };
+  const fetchChecklists = async () => { try { const res = await fetch(`${BASE_URL}/daily-checklists`); if(res.ok) setDbChecklists(await res.json()); } catch(e){} };
 
   // --- HELPERS ---
-  const formatDate = (dateString) => {
-    if (!dateString) return '-';
-    try {
-        const d = new Date(dateString);
-        return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
-    } catch (e) { return '-'; }
-  };
+  const formatDate = (dateString) => { if (!dateString) return '-'; try { const d = new Date(dateString); return isNaN(d.getTime()) ? '-' : d.toLocaleDateString(); } catch (e) { return '-'; } };
+  const formatDateTime = (s) => s ? new Date(s).toLocaleString() : '-';
 
-  // --- LÓGICA DE FILTRADO ---
   const uniqueProjects = useMemo(() => [...new Set(dbAssets.map(a => a.project_name))].filter(Boolean), [dbAssets]);
-  
   const availableModels = useMemo(() => {
     const assets = projectFilter ? dbAssets.filter(a => a.project_name === projectFilter) : dbAssets;
     return [...new Set(assets.map(a => a.model_name))].filter(Boolean);
   }, [dbAssets, projectFilter]);
-
   const filteredAssets = useMemo(() => {
     return dbAssets.filter(asset => {
       const matchSearch = asset.serial_number.toLowerCase().includes(searchTerm.toLowerCase());
@@ -158,320 +156,76 @@ export default function App() {
   useEffect(() => { setModelFilter(''); }, [projectFilter]);
 
   const getProjectsForModal = () => [...new Set(dbAssets.map(a => a.project_name))].filter(Boolean);
-  const getModelsForModal = (p) => {
-     const assets = p ? dbAssets.filter(a => a.project_name === p) : dbAssets;
-     return [...new Set(assets.map(a => a.model_name))].filter(Boolean);
-  };
+  const getModelsForModal = (p) => { const assets = p ? dbAssets.filter(a => a.project_name === p) : dbAssets; return [...new Set(assets.map(a => a.model_name))].filter(Boolean); };
   const getAssetsForModal = (p, m) => dbAssets.filter(a => (!p || a.project_name === p) && (!m || a.model_name === m));
-
   const getModelsForProject = (p) => [...new Set((p ? dbAssets.filter(a=>a.project_name===p) : dbAssets).map(a=>a.model_name))].filter(Boolean);
 
-  // --- FUNCIONES HISTORIAL TÉCNICO ---
-  const openTechHistory = (tech, type) => {
-    fetchWorkOrders().then(() => setTechHistoryModal({ show: true, tech, type }));
-  };
-
-  const closeTechHistory = () => {
-    setTechHistoryModal({ show: false, tech: null, type: 'pending' });
-  };
+  // --- FUNCIONES ---
+  const openTechHistory = (tech, type) => { fetchWorkOrders().then(() => setTechHistoryModal({ show: true, tech, type })); };
+  const closeTechHistory = () => { setTechHistoryModal({ show: false, tech: null, type: 'pending' }); };
 
   const handleUpdateStatusFromTable = async (woId, newStatus) => {
-    const originalWO = dbWorkOrders.find(w => w.wo_id === woId);
-    if (!originalWO) return;
-    const payload = {
-        description: originalWO.title || originalWO.description,
-        priority: originalWO.priority,
-        status: newStatus,
-        authorized_by: originalWO.authorized_by,
-        location: originalWO.location,
-        scheduled_start: originalWO.scheduled_start,
-        scheduled_end: originalWO.scheduled_end,
-        assigned_user_id: originalWO.assigned_user_id
-    };
-    try {
-        const res = await fetch(`${BASE_URL}/work-orders/${woId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (res.ok) { 
-           fetchWorkOrders(); fetchUsers(); fetchLogs(); // Actualizar bitácora también
-           alert(`Estado actualizado a: ${newStatus}`); 
-        } 
-        else { alert('Error al actualizar estado'); }
-    } catch (e) { alert('Error de conexión'); }
+    const originalWO = dbWorkOrders.find(w => w.wo_id === woId); if (!originalWO) return;
+    const payload = { description: originalWO.title || originalWO.description, priority: originalWO.priority, status: newStatus, authorized_by: originalWO.authorized_by, location: originalWO.location, scheduled_start: originalWO.scheduled_start, scheduled_end: originalWO.scheduled_end, assigned_user_id: originalWO.assigned_user_id };
+    try { const res = await fetch(`${BASE_URL}/work-orders/${woId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); if (res.ok) { fetchWorkOrders(); fetchUsers(); fetchLogs(); alert(`Estado actualizado a: ${newStatus}`); } else { alert('Error al actualizar estado'); } } catch (e) { alert('Error de conexión'); }
   };
 
-  // --- GENERACIÓN PDF ---
+  const viewChecklistDetails = async (id) => {
+    try { const res = await fetch(`${BASE_URL}/daily-checklists/${id}`); if(res.ok) { const data = await res.json(); setViewChecklistData(data); setActiveModal('checklist-detail'); } else { alert("No se pudo cargar el detalle."); } } catch(e) { alert("Error de conexión"); }
+  };
+
   const printOrderPDF = (ot) => {
     if (!window.jspdf || !window.jspdf.jsPDF) return alert("Motor de PDF cargando...");
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    const blue = [41, 128, 185];
-
-    doc.setFillColor(...blue);
-    doc.rect(0, 0, 210, 40, 'F');
-    doc.setTextColor(255);
-    doc.setFontSize(22);
-    doc.text("ORDEN DE MANTENIMIENTO", 105, 20, null, null, "center");
-    doc.setFontSize(10);
-    doc.text(`FOLIO: OT-${ot.wo_id} | FECHA: ${new Date().toLocaleDateString()}`, 105, 30, null, null, "center");
-
-    doc.setTextColor(0);
-    doc.setFontSize(12);
-    doc.text("1. DATOS DEL EQUIPO", 14, 50);
-    doc.autoTable({
-        startY: 55,
-        body: [
-            ["Activo:", ot.fixture_name, "S/N:", ot.serial_number],
-            ["Ubicación:", ot.location || 'N/A', "Tipo:", ot.maintenance_type],
-            ["Prioridad:", ot.priority, "Estado:", ot.status]
-        ],
-        theme: 'plain', styles: { fontSize: 9 }
-    });
-
-    doc.text("2. DETALLE DE ACTIVIDAD", 14, doc.lastAutoTable.finalY + 10);
-    const splitDesc = doc.splitTextToSize(ot.title || ot.description || 'Sin descripción.', 180);
-    doc.text(splitDesc, 14, doc.lastAutoTable.finalY + 17);
-
-    let nextY = doc.lastAutoTable.finalY + 20 + (splitDesc.length * 5);
-
-    doc.text("3. PROGRAMACIÓN", 14, nextY);
-    doc.autoTable({
-        startY: nextY + 5,
-        head: [['INICIO', 'FIN', 'TÉCNICO', 'AUTORIZÓ']],
-        body: [[formatDate(ot.scheduled_start), formatDate(ot.scheduled_end), ot.tech_name || 'N/A', ot.authorized_by || 'N/A']],
-        theme: 'grid', headStyles: { fillColor: blue }
-    });
-
-    doc.text("4. MATERIALES", 14, doc.lastAutoTable.finalY + 10);
-    const matList = ot.materials_used ? ot.materials_used.split(',').map(m => [m.trim()]) : [['Ninguno']];
-    doc.autoTable({
-        startY: doc.lastAutoTable.finalY + 15,
-        head: [['MATERIAL / CANTIDAD']],
-        body: matList,
-        theme: 'striped', headStyles: { fillColor: [50, 50, 50] }
-    });
-
-    const finalY = doc.lastAutoTable.finalY + 30;
-    doc.line(20, finalY, 80, finalY);
-    doc.text("FIRMA TÉCNICO", 35, finalY + 5);
-    doc.line(130, finalY, 190, finalY);
-    doc.text("FIRMA SUPERVISOR", 145, finalY + 5);
-
+    const { jsPDF } = window.jspdf; const doc = new jsPDF(); const blue = [41, 128, 185];
+    doc.setFillColor(...blue); doc.rect(0, 0, 210, 40, 'F'); doc.setTextColor(255); doc.setFontSize(22); doc.text("ORDEN DE MANTENIMIENTO", 105, 20, null, null, "center"); doc.setFontSize(10); doc.text(`FOLIO: OT-${ot.wo_id} | FECHA: ${new Date().toLocaleDateString()}`, 105, 30, null, null, "center");
+    doc.setTextColor(0); doc.setFontSize(12); doc.text("1. DATOS DEL EQUIPO", 14, 50);
+    doc.autoTable({ startY: 55, body: [ ["Activo:", ot.fixture_name, "S/N:", ot.serial_number], ["Ubicación:", ot.location || 'N/A', "Tipo:", ot.maintenance_type], ["Prioridad:", ot.priority, "Estado:", ot.status] ], theme: 'plain', styles: { fontSize: 9 } });
+    doc.text("2. DETALLE DE ACTIVIDAD", 14, doc.lastAutoTable.finalY + 10); const splitDesc = doc.splitTextToSize(ot.title || ot.description || 'Sin descripción.', 180); doc.text(splitDesc, 14, doc.lastAutoTable.finalY + 17);
+    let nextY = doc.lastAutoTable.finalY + 20 + (splitDesc.length * 5); doc.text("3. PROGRAMACIÓN", 14, nextY);
+    doc.autoTable({ startY: nextY + 5, head: [['INICIO', 'FIN', 'TÉCNICO', 'AUTORIZÓ']], body: [[formatDate(ot.scheduled_start), formatDate(ot.scheduled_end), ot.tech_name || 'N/A', ot.authorized_by || 'N/A']], theme: 'grid', headStyles: { fillColor: blue } });
+    doc.text("4. MATERIALES", 14, doc.lastAutoTable.finalY + 10); const matList = ot.materials_used ? ot.materials_used.split(',').map(m => [m.trim()]) : [['Ninguno']];
+    doc.autoTable({ startY: doc.lastAutoTable.finalY + 15, head: [['MATERIAL / CANTIDAD']], body: matList, theme: 'striped', headStyles: { fillColor: [50, 50, 50] } });
     doc.save(`OT-${ot.wo_id}.pdf`);
   };
 
-  // --- API HANDLER ---
   const apiRequest = async (url, method, body) => {
-    try {
-      const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-      const data = await res.json();
-      if(res.ok) { setActiveModal(null); setIsEditing(false); loadAllData(); alert('Guardado correctamente.'); } 
-      else { alert('Error: ' + (data.error || 'Error desconocido')); }
-    } catch(e) { alert('Error de conexión con el servidor.'); }
+    try { const res = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }); const data = await res.json(); if(res.ok) { setActiveModal(null); setIsEditing(false); loadAllData(); alert('Guardado correctamente.'); } else { alert('Error: ' + (data.error || 'Error desconocido')); } } catch(e) { alert('Error de conexión con el servidor.'); }
   };
 
-  // --- HANDLERS ---
-  const handleSaveAsset = (e) => {
-    e.preventDefault();
-    const url = isEditing ? `${BASE_URL}/assets/${formAsset.id}` : `${BASE_URL}/assets`;
-    const payload = { ...formAsset }; delete payload.image_file; delete payload.doc_file;
-    apiRequest(url, isEditing ? 'PUT' : 'POST', payload);
-  };
+  const handleSaveAsset = (e) => { e.preventDefault(); const p = {...formAsset}; delete p.image_file; delete p.doc_file; apiRequest(`${BASE_URL}/assets${isEditing?'/'+formAsset.id:''}`, isEditing?'PUT':'POST', p); };
+  const handleSaveWO = (e) => { e.preventDefault(); if(!formWO.asset_id && !isEditing) return alert("Seleccione activo."); const p = {...formWO, description: formWO.description || `OT ${formWO.type}`, assigned_user_id: formWO.tech_id, material_qty: parseInt(formWO.material_qty)||0 }; apiRequest(`${BASE_URL}/work-orders${isEditing?'/'+formWO.id:''}`, isEditing?'PUT':'POST', p); };
+  const handleSaveItem = (e) => { e.preventDefault(); apiRequest(`${BASE_URL}/inventory${isEditing?'/'+formItem.id:''}`, isEditing?'PUT':'POST', formItem); };
+  const handleSaveUser = (e) => { e.preventDefault(); apiRequest(`${BASE_URL}/users${isEditing?'/'+formUser.id:''}`, isEditing?'PUT':'POST', formUser); };
 
-  const handleSaveWO = (e) => {
-    e.preventDefault();
-    if (!formWO.asset_id && !isEditing) return alert("Seleccione un activo.");
-    const url = isEditing ? `${BASE_URL}/work-orders/${formWO.id}` : `${BASE_URL}/work-orders`;
-    const payload = {
-        asset_id: formWO.asset_id,
-        maintenance_type: formWO.type,
-        priority: formWO.priority,
-        description: formWO.description || `Mantenimiento ${formWO.type}`,
-        assigned_user_id: formWO.tech_id || null,
-        material_id: formWO.material_id || null,
-        material_qty: parseInt(formWO.material_qty) || 0,
-        location: formWO.location,
-        scheduled_start: formWO.start_date || null,
-        scheduled_end: formWO.end_date || null,
-        authorized_by: formWO.authorized_by,
-        status: formWO.status
-    };
-    apiRequest(url, isEditing ? 'PUT' : 'POST', payload);
-  };
-
-  const handleSaveItem = (e) => {
-    e.preventDefault();
-    const url = isEditing ? `${BASE_URL}/inventory/${formItem.id}` : `${BASE_URL}/inventory`;
-    apiRequest(url, isEditing ? 'PUT' : 'POST', formItem);
-  };
-
-  const handleSaveUser = (e) => {
-    e.preventDefault();
-    const url = isEditing ? `${BASE_URL}/users/${formUser.id}` : `${BASE_URL}/users`;
-    apiRequest(url, isEditing ? 'PUT' : 'POST', formUser);
-  };
-
-  // --- HANDLER CHECKLIST ---
   const handleSaveChecklist = async () => {
      if(!chkDate || !chkModel || !chkTech) return alert("Complete Fecha, Modelo y Técnico.");
      const assetsToCheck = dbAssets.filter(a => a.model_name === chkModel);
      if(assetsToCheck.length === 0) return alert("No hay activos para este modelo.");
-
-     const missing = assetsToCheck.some(asset => {
-        return ![1,2,3,4,5,6,7,8,9].every(i => chkData[`${asset.asset_id}_${i}`]);
-     });
+     const missing = assetsToCheck.some(asset => { return ![1,2,3,4,5,6,7,8,9].every(i => chkData[`${asset.asset_id}_${i}`]); });
      if (missing) return alert("Debe responder OK, NOK o NA en todos los puntos.");
-
-     const items = assetsToCheck.map(asset => ({
-        asset_id: asset.asset_id,
-        check_1: chkData[`${asset.asset_id}_1`],
-        check_2: chkData[`${asset.asset_id}_2`],
-        check_3: chkData[`${asset.asset_id}_3`],
-        check_4: chkData[`${asset.asset_id}_4`],
-        check_5: chkData[`${asset.asset_id}_5`],
-        check_6: chkData[`${asset.asset_id}_6`],
-        check_7: chkData[`${asset.asset_id}_7`],
-        check_8: chkData[`${asset.asset_id}_8`],
-        check_9: chkData[`${asset.asset_id}_9`],
-        remarks: chkData[`${asset.asset_id}_remarks`] || ''
-     }));
+     const items = assetsToCheck.map(asset => ({ asset_id: asset.asset_id, check_1: chkData[`${asset.asset_id}_1`], check_2: chkData[`${asset.asset_id}_2`], check_3: chkData[`${asset.asset_id}_3`], check_4: chkData[`${asset.asset_id}_4`], check_5: chkData[`${asset.asset_id}_5`], check_6: chkData[`${asset.asset_id}_6`], check_7: chkData[`${asset.asset_id}_7`], check_8: chkData[`${asset.asset_id}_8`], check_9: chkData[`${asset.asset_id}_9`], remarks: chkData[`${asset.asset_id}_remarks`] || '' }));
      const payload = { date: chkDate, project: chkProject, model: chkModel, line: chkLine, tech_id: chkTech, items };
-     try {
-        const res = await fetch(`${BASE_URL}/daily-checklists`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-        if(res.ok) { 
-           alert("Checklist Guardado"); setChkData({}); fetchLogs(); // Actualizar bitácora
-        } else alert("Error guardando checklist");
-     } catch(e) { alert("Error conexión"); }
+     try { const res = await fetch(`${BASE_URL}/daily-checklists`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); if(res.ok) { alert("Checklist Guardado"); setChkData({}); fetchLogs(); fetchChecklists(); } else alert("Error guardando checklist"); } catch(e) { alert("Error conexión"); }
   };
-
-  const handleCheckChange = (assetId, checkIdx, value) => {
-     setChkData(prev => ({ ...prev, [`${assetId}_${checkIdx}`]: value }));
-  };
+  const handleCheckChange = (assetId, checkIdx, value) => { setChkData(prev => ({ ...prev, [`${assetId}_${checkIdx}`]: value })); };
 
   // --- VISTAS ---
-
   const renderAssetsView = () => (
     <div className="space-y-6 animate-in fade-in">
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-        <div className="space-y-1">
-          <label className={UI.label}>Filtrar Proyecto</label>
-          <select className={UI.select} value={projectFilter} onChange={e => setProjectFilter(e.target.value)}>
-            <option value="">-- Todos --</option>
-            {uniqueProjects.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className={UI.label}>Filtrar Modelo</label>
-          <select className={UI.select} value={modelFilter} onChange={e => setModelFilter(e.target.value)}>
-            <option value="">-- Todos --</option>
-            {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className={UI.label}>Buscar Serial</label>
-          <div className="relative">
-            <Search className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
-            <input className={`${UI.input} pl-9`} placeholder="..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-          </div>
-        </div>
+        <div className="space-y-1"><label className={UI.label}>Filtrar Proyecto</label><select className={UI.select} value={projectFilter} onChange={e => setProjectFilter(e.target.value)}><option value="">-- Todos --</option>{uniqueProjects.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+        <div className="space-y-1"><label className={UI.label}>Filtrar Modelo</label><select className={UI.select} value={modelFilter} onChange={e => setModelFilter(e.target.value)}><option value="">-- Todos --</option>{availableModels.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
+        <div className="space-y-1"><label className={UI.label}>Buscar Serial</label><div className="relative"><Search className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" /><input className={`${UI.input} pl-9`} placeholder="..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div></div>
         <button onClick={() => { setIsEditing(false); setFormAsset(initialAsset); setActiveModal('asset'); }} className={UI.headerBtn}><Plus className="w-5 h-5"/> Nuevo Activo</button>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredAssets.map(a => (
-           <div key={a.asset_id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 relative hover:shadow-md group transition-all">
-              <button onClick={() => { setFormAsset({...a, id: a.asset_id}); setIsEditing(true); setActiveModal('asset'); }} className="absolute top-5 right-5 p-2 bg-slate-50 rounded-lg text-blue-600 hidden group-hover:block"><Edit className="w-4 h-4"/></button>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="bg-blue-100 p-3 rounded-2xl"><Box className="w-6 h-6 text-blue-600"/></div>
-                <div><span className="text-[10px] uppercase font-black text-slate-400">{a.project_name}</span><h3 className="text-base font-bold text-slate-800">{a.fixture_name}</h3></div>
-              </div>
-              <div className="space-y-2 border-t pt-3">
-                 <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold">SERIAL:</span><span className="font-mono font-bold text-blue-600">{a.serial_number}</span></div>
-                 <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold">MODELO:</span><span className="font-semibold text-slate-700">{a.model_name}</span></div>
-                 <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold">ESTADO:</span><span className={`font-black text-[10px] px-2 rounded-full ${a.condition_status === 'Activo' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>{a.condition_status || 'ACTIVO'}</span></div>
-              </div>
-           </div>
-        ))}
-      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">{filteredAssets.map(a => (<div key={a.asset_id} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 relative hover:shadow-md group transition-all"><button onClick={() => { setFormAsset({...a, id: a.asset_id}); setIsEditing(true); setActiveModal('asset'); }} className="absolute top-5 right-5 p-2 bg-slate-50 rounded-lg text-blue-600 hidden group-hover:block"><Edit className="w-4 h-4"/></button><div className="flex items-center gap-3 mb-4"><div className="bg-blue-100 p-3 rounded-2xl"><Box className="w-6 h-6 text-blue-600"/></div><div><span className="text-[10px] uppercase font-black text-slate-400">{a.project_name}</span><h3 className="text-base font-bold text-slate-800">{a.fixture_name}</h3></div></div><div className="space-y-2 border-t pt-3"><div className="flex justify-between text-xs"><span className="text-slate-400 font-bold">SERIAL:</span><span className="font-mono font-bold text-blue-600">{a.serial_number}</span></div><div className="flex justify-between text-xs"><span className="text-slate-400 font-bold">MODELO:</span><span className="font-semibold text-slate-700">{a.model_name}</span></div><div className="flex justify-between text-xs"><span className="text-slate-400 font-bold">ESTADO:</span><span className={`font-black text-[10px] px-2 rounded-full ${a.condition_status === 'Activo' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>{a.condition_status || 'ACTIVO'}</span></div></div></div>))}</div>
     </div>
   );
 
   const renderWorkOrdersView = () => (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 w-full overflow-hidden animate-in fade-in">
-      <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/20">
-        <h2 className="text-lg font-bold text-slate-800">Órdenes de Trabajo</h2>
-        <button onClick={() => { setIsEditing(false); setFormWO(initialWO); setActiveModal('wo'); }} className={UI.headerBtn}><FilePlus className="w-5 h-5"/> Nueva Orden</button>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-xs text-left">
-          <thead className="bg-slate-50 text-slate-500 uppercase font-black border-b tracking-widest">
-            <tr>
-                <th className="px-5 py-4">OT #</th>
-                <th className="px-5 py-4">Activo / Serial</th>
-                <th className="px-5 py-4">Ubicación</th>
-                <th className="px-5 py-4">Programación</th>
-                <th className="px-5 py-4">Actividad</th>
-                <th className="px-4 py-4 text-center">Prioridad</th>
-                <th className="px-5 py-4">Materiales</th>
-                <th className="px-5 py-4">Técnico</th>
-                <th className="px-5 py-4 text-center">Estado</th>
-                <th className="px-5 py-4 text-center">Gestión</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 font-medium">
-            {dbWorkOrders.map((ot) => (
-              <tr key={ot.wo_id} className="hover:bg-blue-50/10 transition-colors">
-                <td className="px-5 py-5 font-black text-blue-600">#{ot.wo_id}</td>
-                <td className="px-5 py-5">
-                   <div className="font-bold text-slate-800">{ot.fixture_name || 'Desconocido'}</div>
-                   <div className="text-slate-400 font-mono text-[10px]">{ot.serial_number || 'N/A'}</div>
-                </td>
-                <td className="px-5 py-5 text-slate-500">{ot.location || 'N/A'}</td>
-                <td className="px-5 py-5">
-                  <div className="text-slate-700 font-bold">{formatDate(ot.scheduled_start)}</div>
-                  <div className="text-[10px] text-slate-400 italic">Fin: {formatDate(ot.scheduled_end)}</div>
-                </td>
-                <td className="px-5 py-5 text-slate-600 max-w-xs truncate" title={ot.title || ot.description}>{ot.title || ot.description}</td>
-                <td className="px-4 py-5 text-center">
-                    <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>
-                        {ot.priority ? ot.priority.toUpperCase() : 'MEDIA'}
-                    </span>
-                </td>
-                <td className="px-5 py-5 text-slate-500 italic max-w-[150px] truncate">{ot.materials_used || 'Ninguno'}</td>
-                <td className="px-5 py-5 text-slate-800 font-bold">{ot.tech_name || 'Sin asignar'}</td>
-                <td className="px-5 py-5 text-center">
-                   <span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${
-                     ot.status === 'Programado' ? 'bg-gray-100 text-black border-gray-300' :
-                     ot.status === 'Reprogramado' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-                     ot.status === 'Completado' ? 'bg-green-100 text-green-800 border-green-200' :
-                     ot.status === 'No Completado' ? 'bg-red-100 text-red-800 border-red-200' :
-                     'bg-gray-50 text-gray-500'
-                   }`}>
-                     {ot.status}
-                   </span>
-                </td>
-                <td className="px-5 py-5 text-center">
-                  <div className="flex justify-center gap-2">
-                    <button onClick={() => { 
-                        setFormWO({
-                          ...ot, 
-                          id: ot.wo_id, 
-                          start_date: ot.scheduled_start?.split('T')[0], 
-                          end_date: ot.scheduled_end?.split('T')[0],
-                          description: ot.title || ot.description,
-                          fixture_name: ot.fixture_name,
-                          serial_number: ot.serial_number,
-                          tech_id: ot.assigned_user_id 
-                        }); 
-                        setIsEditing(true); 
-                        setActiveModal('wo'); 
-                    }} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all"><Edit className="w-3.5 h-3.5"/></button>
-                    <button onClick={() => printOrderPDF(ot)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"><Printer className="w-3.5 h-3.5"/></button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/20"><h2 className="text-lg font-bold text-slate-800">Órdenes de Trabajo</h2><button onClick={() => { setIsEditing(false); setFormWO(initialWO); setActiveModal('wo'); }} className={UI.headerBtn}><FilePlus className="w-5 h-5"/> Nueva Orden</button></div>
+      <div className="overflow-x-auto"><table className="min-w-full text-xs text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-black border-b tracking-widest"><tr><th className="px-5 py-4">OT #</th><th className="px-5 py-4">Activo / Serial</th><th className="px-5 py-4">Ubicación</th><th className="px-5 py-4">Programación</th><th className="px-5 py-4">Actividad</th><th className="px-4 py-4 text-center">Prioridad</th><th className="px-5 py-4">Materiales</th><th className="px-5 py-4">Técnico</th><th className="px-5 py-4 text-center">Estado</th><th className="px-5 py-4 text-center">Gestión</th></tr></thead><tbody className="divide-y divide-slate-100 font-medium">{dbWorkOrders.map((ot) => (<tr key={ot.wo_id} className="hover:bg-blue-50/10 transition-colors"><td className="px-5 py-5 font-black text-blue-600">#{ot.wo_id}</td><td className="px-5 py-5"><div className="font-bold text-slate-800">{ot.fixture_name||'Desconocido'}</div><div className="text-slate-400 font-mono text-[10px]">{ot.serial_number||'N/A'}</div></td><td className="px-5 py-5 text-slate-500">{ot.location||'N/A'}</td><td className="px-5 py-5"><div className="text-slate-700 font-bold">{formatDate(ot.scheduled_start)}</div><div className="text-[10px] text-slate-400 italic">Fin: {formatDate(ot.scheduled_end)}</div></td><td className="px-5 py-5 text-slate-600 max-w-xs truncate">{ot.title||ot.description}</td><td className="px-4 py-5 text-center"><span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600':'bg-blue-50 text-blue-600'}`}>{ot.priority?ot.priority.toUpperCase():'MEDIA'}</span></td><td className="px-5 py-5 text-slate-500 italic max-w-[150px] truncate">{ot.materials_used||'Ninguno'}</td><td className="px-5 py-5 text-slate-800 font-bold">{ot.tech_name||'Sin asignar'}</td><td className="px-5 py-5 text-center"><span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${ot.status==='Completado'?'bg-green-100 text-green-800':'bg-gray-50 text-gray-500'}`}>{ot.status}</span></td><td className="px-5 py-5 text-center"><div className="flex justify-center gap-2"><button onClick={()=>{setFormWO({...ot, id:ot.wo_id, start_date:ot.scheduled_start?.split('T')[0], end_date:ot.scheduled_end?.split('T')[0], description:ot.title||ot.description, fixture_name:ot.fixture_name, serial_number:ot.serial_number, tech_id:ot.assigned_user_id});setIsEditing(true);setActiveModal('wo')}} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit className="w-3.5 h-3.5"/></button><button onClick={() => printOrderPDF(ot)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"><Printer className="w-3.5 h-3.5"/></button></div></td></tr>))}</tbody></table></div>
     </div>
   );
 
@@ -479,14 +233,7 @@ export default function App() {
     <div className="space-y-6">
         <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-slate-800">Almacén</h2><button onClick={() => { setIsEditing(false); setFormItem(initialItem); setActiveModal('item'); }} className={UI.headerBtn}><Plus className="w-5 h-5"/> Nuevo Inventario</button></div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {dbInventory.map(i => (
-                <div key={i.item_id} className="bg-white p-6 rounded-3xl border border-slate-200 relative group hover:shadow-md transition-all">
-                    <button onClick={() => { setFormItem({...i, id: i.item_id}); setIsEditing(true); setActiveModal('item'); }} className="absolute top-4 right-4 p-2 text-slate-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all"><Edit className="w-4 h-4"/></button>
-                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{i.part_code}</span>
-                    <h3 className="font-bold text-slate-800 mb-4">{i.name}</h3>
-                    <div className="flex justify-between border-t pt-4"><div><p className="text-[10px] text-slate-400 font-bold uppercase">Stock</p><div className={`text-2xl font-black ${i.stock_quantity <= i.min_stock_level ? 'text-red-500 animate-pulse' : 'text-slate-800'}`}>{i.stock_quantity}</div></div><div className="text-right text-xs font-bold text-slate-400 uppercase">{i.location_in_warehouse}</div></div>
-                </div>
-            ))}
+            {dbInventory.map(i => (<div key={i.item_id} className="bg-white p-6 rounded-3xl border border-slate-200 relative group hover:shadow-md transition-all"><button onClick={() => { setFormItem({...i, id: i.item_id}); setIsEditing(true); setActiveModal('item'); }} className="absolute top-4 right-4 p-2 text-slate-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all"><Edit className="w-4 h-4"/></button><span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{i.part_code}</span><h3 className="font-bold text-slate-800 mb-4">{i.name}</h3><div className="flex justify-between border-t pt-4"><div><p className="text-[10px] text-slate-400 font-bold uppercase">Stock</p><div className={`text-2xl font-black ${i.stock_quantity <= i.min_stock_level ? 'text-red-500 animate-pulse' : 'text-slate-800'}`}>{i.stock_quantity}</div></div><div className="text-right text-xs font-bold text-slate-400 uppercase">{i.location_in_warehouse}</div></div></div>))}
         </div>
     </div>
   );
@@ -495,23 +242,7 @@ export default function App() {
     <div className="space-y-6 animate-in fade-in">
       <div className="flex justify-between items-center"><h2 className="text-xl font-bold text-slate-800">Equipo</h2><button onClick={() => { setIsEditing(false); setFormUser(initialUser); setActiveModal('user'); }} className={UI.headerBtn}><UserPlus className="w-5 h-5"/> Nuevo Personal</button></div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {dbStaff.filter(s => s.role !== 'Administrador').map(s => (
-          <div key={s.user_id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col relative group hover:shadow-md">
-            <button onClick={() => { setFormUser({...s, id: s.user_id}); setIsEditing(true); setActiveModal('user'); }} className="absolute top-4 right-4 p-2 text-slate-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all"><Edit className="w-4 h-4"/></button>
-            <div className="flex items-center gap-4 mb-4">
-               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center font-black text-xl shadow-lg">{s.full_name.charAt(0)}</div>
-               <div><h3 className="font-bold text-slate-800 text-lg">{s.full_name}</h3><p className="text-xs text-slate-400 font-medium">{s.email}</p><p className="text-xs text-slate-500 font-medium flex items-center mt-1"><Phone className="w-3 h-3 mr-1"/> {s.phone_number || 'N/A'}</p></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-               <button onClick={() => openTechHistory(s, 'pending')} className="flex items-center justify-center bg-orange-50 text-orange-600 text-xs font-bold py-2 rounded-xl hover:bg-orange-100 border border-orange-200"><ListTodo className="w-3 h-3 mr-2"/> Pendientes ({s.active_tasks || 0})</button>
-               <button onClick={() => openTechHistory(s, 'all')} className="flex items-center justify-center bg-blue-50 text-blue-600 text-xs font-bold py-2 rounded-xl hover:bg-blue-100 border border-blue-200"><History className="w-3 h-3 mr-2"/> Historial</button>
-            </div>
-            <div className="flex justify-between items-center border-t pt-4">
-               <span className="text-[10px] font-black text-slate-300 uppercase">Eficiencia: {s.completed_tasks || 0} OTs</span>
-               <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-3 py-1 rounded-full uppercase">{s.role}</span>
-            </div>
-          </div>
-        ))}
+        {dbStaff.filter(s => s.role !== 'Administrador').map(s => (<div key={s.user_id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col relative group hover:shadow-md"><button onClick={() => { setFormUser({...s, id: s.user_id}); setIsEditing(true); setActiveModal('user'); }} className="absolute top-4 right-4 p-2 text-slate-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all"><Edit className="w-4 h-4"/></button><div className="flex items-center gap-4 mb-4"><div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center font-black text-xl shadow-lg">{s.full_name.charAt(0)}</div><div><h3 className="font-bold text-slate-800 text-lg">{s.full_name}</h3><p className="text-xs text-slate-400 font-medium">{s.email}</p><p className="text-xs text-slate-500 font-medium flex items-center mt-1"><Phone className="w-3 h-3 mr-1"/> {s.phone_number || 'N/A'}</p></div></div><div className="grid grid-cols-2 gap-3 mb-4"><button onClick={() => openTechHistory(s, 'pending')} className="flex items-center justify-center bg-orange-50 text-orange-600 text-xs font-bold py-2 rounded-xl hover:bg-orange-100 border border-orange-200"><ListTodo className="w-3 h-3 mr-2"/> Pendientes ({s.active_tasks || 0})</button><button onClick={() => openTechHistory(s, 'all')} className="flex items-center justify-center bg-blue-50 text-blue-600 text-xs font-bold py-2 rounded-xl hover:bg-blue-100 border border-blue-200"><History className="w-3 h-3 mr-2"/> Historial</button></div><div className="flex justify-between items-center border-t pt-4"><span className="text-[10px] font-black text-slate-300 uppercase">Eficiencia: {s.completed_tasks || 0} OTs</span><span className="bg-blue-50 text-blue-700 text-[10px] font-black px-3 py-1 rounded-full uppercase">{s.role}</span></div></div>))}
       </div>
     </div>
   );
@@ -584,32 +315,43 @@ export default function App() {
     );
   };
 
-  // --- VISTA BITÁCORA (TIMELINE) ---
+  // --- VISTA BITÁCORA (TABLA MAESTRA - ACTUALIZADA) ---
   const renderBitacoraView = () => (
     <div className="space-y-6 animate-in fade-in">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-slate-800">Bitácora de Actividades</h2>
-        <button onClick={async () => { try { const res = await fetch(`${BASE_URL}/audit-logs`); if(res.ok) setDbLogs(await res.json()); } catch(e){} }} 
-          className="bg-slate-100 text-slate-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-200 flex items-center">
-            <History className="w-4 h-4 mr-2"/> Actualizar
-        </button>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-2 mb-4 flex gap-2 w-max">
+          <button onClick={() => setBitacoraTab('workorders')} className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${bitacoraTab === 'workorders' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>Órdenes de Trabajo</button>
+          <button onClick={() => setBitacoraTab('checklists')} className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${bitacoraTab === 'checklists' ? 'bg-purple-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>Registros de Checklist</button>
       </div>
-      <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-8">
-        {dbLogs.length === 0 ? <div className="pl-8 text-slate-400 italic">No hay registros recientes.</div> : dbLogs.map((log) => (
-             <div key={log.log_id} className="relative pl-8 group">
-                <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white shadow-sm ${log.action_type === 'CREATE' ? 'bg-green-500' : log.action_type === 'UPDATE' ? 'bg-blue-500' : 'bg-slate-400'}`}></div>
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all">
-                    <div className="flex justify-between items-start mb-2">
-                        <div className="flex flex-col">
-                            <span className="text-[10px] font-black uppercase tracking-widest bg-slate-50 text-slate-500 w-max px-2 py-0.5 rounded mb-1">{log.module} • {log.action_type}</span>
-                            <p className="text-sm font-bold text-slate-800">{log.description}</p>
-                        </div>
-                        <span className="text-[10px] font-medium text-slate-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center text-xs text-slate-500 mt-2 border-t border-slate-50 pt-2"><Users className="w-3 h-3 mr-1"/> Usuario: <span className="font-bold ml-1">{log.user_name || 'Sistema'}</span></div>
-                </div>
-             </div>
-        ))}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/20">
+            <h2 className="text-lg font-bold text-slate-800">{bitacoraTab === 'workorders' ? 'Historial de Mantenimiento' : 'Historial de Inspecciones Diarias'}</h2>
+            <button onClick={() => { fetchLogs(); fetchChecklists(); }} className="bg-slate-100 text-slate-500 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-200 flex items-center"><RefreshCw className="w-3 h-3 mr-1"/> Actualizar</button>
+        </div>
+        <div className="overflow-x-auto">
+          {bitacoraTab === 'workorders' ? (
+              <table className="w-full text-xs text-left">
+                 <thead className={UI.tableHeader}><tr><th className={UI.tableCell}>FECHA</th><th className={UI.tableCell}>SERIAL</th><th className={UI.tableCell}>ACTIVO / FIXTURA</th><th className={UI.tableCell}>ACTIVIDAD</th><th className={UI.tableCell}>TÉCNICO</th><th className={UI.tableCell}>ESTADO</th></tr></thead>
+                 <tbody className="divide-y divide-slate-100">{dbWorkOrders.map(ot => (<tr key={ot.wo_id} className={UI.tableRow}><td className="p-4 font-mono font-bold text-slate-600">{formatDate(ot.created_at)}</td><td className="p-4 font-mono text-slate-500">{ot.serial_number}</td><td className="p-4 font-bold text-slate-700">{ot.fixture_name}</td><td className="p-4 max-w-xs truncate text-slate-600" title={ot.title || ot.description}>{ot.title || ot.description}</td><td className="p-4 font-bold text-slate-600">{ot.tech_name || 'Sin Asignar'}</td><td className="p-4"><span className={UI.statusBadge(ot.status)}>{ot.status}</span></td></tr>))}</tbody>
+              </table>
+          ) : (
+              <table className="w-full text-xs text-left">
+                 <thead className={UI.tableHeader}><tr><th className={UI.tableCell}>FECHA</th><th className={UI.tableCell}>PROYECTO</th><th className={UI.tableCell}>MODELO</th><th className={UI.tableCell}>LÍNEA</th><th className={UI.tableCell}>TÉCNICO</th><th className={UI.tableCell}>DETALLES</th></tr></thead>
+                 <tbody className="divide-y divide-slate-100">
+                    {dbChecklists.map(chk => (
+                        <tr key={chk.checklist_id} className={UI.tableRow}>
+                           <td className="p-4 font-mono font-bold text-slate-600">{formatDate(chk.date)}</td>
+                           <td className="p-4 font-bold text-slate-500 uppercase">{chk.project_name}</td>
+                           <td className="p-4 font-bold text-blue-600">{chk.model_name}</td>
+                           <td className="p-4 text-slate-500 font-mono">{chk.line}</td>
+                           <td className="p-4 font-bold text-slate-700">{chk.tech_name || 'Desconocido'}</td>
+                           <td className="p-4"><button onClick={() => viewChecklistDetails(chk.checklist_id)} className="bg-purple-50 text-purple-600 px-3 py-1 rounded-lg text-[10px] font-bold hover:bg-purple-100 flex items-center"><Eye className="w-3 h-3 mr-1"/> Ver</button></td>
+                        </tr>
+                    ))}
+                    {dbChecklists.length === 0 && (<tr><td colSpan="6" className="p-8 text-center text-slate-300 italic">No hay registros de checklist disponibles.</td></tr>)}
+                 </tbody>
+              </table>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -632,7 +374,7 @@ export default function App() {
 
       <div className="flex-1 flex flex-col h-full overflow-hidden w-full">
         <header className="h-20 bg-white border-b flex items-center justify-between px-8 flex-shrink-0 z-10">
-          <div className="flex items-center"><button onClick={() => setIsSidebarOpen(true)} className="md:hidden mr-3 p-2 bg-slate-50 rounded-lg"><Menu/></button><h1 className="text-xl font-bold text-slate-800 capitalize tracking-tight">{currentView === 'workorders' ? 'Órdenes de Trabajo' : currentView === 'team' ? 'Gestión de Equipo' : currentView}</h1></div>
+          <div className="flex items-center"><button onClick={() => setIsSidebarOpen(true)} className="md:hidden mr-3 p-2 bg-slate-50 rounded-lg"><Menu/></button><h1 className="text-xl font-bold text-slate-800 capitalize tracking-tight">{currentView}</h1></div>
           <div className={`px-4 py-2 rounded-full text-[10px] font-black flex items-center gap-2 border ${serverStatus==='online'?'bg-green-50 text-green-600 border-green-100':'bg-red-50 text-red-600 border-red-100'}`}>SISTEMA {serverStatus.toUpperCase()}</div>
         </header>
 
@@ -688,7 +430,7 @@ export default function App() {
                    </div>
                    <div><label className={UI.label}>Descripción</label><textarea className={UI.textarea} value={formAsset.description} onChange={e=>setFormAsset({...formAsset,description:e.target.value})}/></div>
                    <div className="flex gap-2">
-                     <button type="submit" className={UI.btnPrimary}>{isEditing ? 'Actualizar Activo' : 'Guardar Activo'}</button>
+                     <button type="submit" className={UI.btnPrimary}>Guardar</button>
                      <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                    </div>
                 </form>
@@ -718,7 +460,7 @@ export default function App() {
                      </div>
                    ) : (
                      <div className="bg-slate-100 p-4 rounded-3xl border border-slate-200">
-                        <label className={UI.label}>Activo Vinculado </label>
+                        <label className={UI.label}>Activo Vinculado (No editable)</label>
                         <div className="text-sm font-bold text-slate-700">{formWO.fixture_name} ({formWO.serial_number})</div>
                      </div>
                    )}
@@ -739,7 +481,7 @@ export default function App() {
                    {isEditing && (<div><label className={UI.label}>Estado</label><select className={`${UI.select} text-blue-600`} value={formWO.status} onChange={e=>setFormWO({...formWO, status:e.target.value})}><option>Programado</option><option>Reprogramado</option><option>Completado</option><option>No Completado</option></select></div>)}
                    <div><label className={UI.label}>Técnico</label><select className={UI.select} value={formWO.tech_id} onChange={e=>setFormWO({...formWO, tech_id:e.target.value})}><option value="">-- Seleccionar --</option>{dbStaff.map(s=><option key={s.user_id} value={s.user_id}>{s.full_name}</option>)}</select></div>
                    <div className="flex gap-2">
-                     <button type="submit" className={UI.btnPrimary}>{isEditing ? 'Actualizar Orden' : 'Generar Orden'}</button>
+                     <button type="submit" className={UI.btnPrimary}>Confirmar</button>
                      <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                    </div>
                 </form>
@@ -767,7 +509,7 @@ export default function App() {
                    <div><label className={UI.label}>Costo Unitario ($)</label><input type="number" required className={UI.input} value={formItem.unit_cost} onChange={e=>setFormItem({...formItem,unit_cost:e.target.value})}/></div>
                    <div><label className={UI.label}>Ubicación Almacén</label><input className={UI.input} placeholder="Ej. Bin A-2" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem,location_in_warehouse:e.target.value})}/></div>
                    <div className="flex gap-2">
-                     <button className={UI.btnPrimary}>{isEditing ? 'Actualizar Ítem' : 'Guardar Ítem'}</button>
+                     <button className={UI.btnPrimary}>Confirmar Registro</button>
                      <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                    </div>
                 </form>
@@ -786,13 +528,17 @@ export default function App() {
             </div>
             <div className={UI.modalScroll}>
                 <form onSubmit={handleSaveUser} className="space-y-4">
-                   <div><label className={UI.label}># Empleado</label><input required className={UI.input} value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/></div>
-                   <div><label className={UI.label}>Nombre Completo</label><input required className={UI.input} value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/></div>
-                   <div><label className={UI.label}>Email Corporativo</label><input type="email" required className={UI.input} value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/></div>
-                   <div><label className={UI.label}>Teléfono de Contacto</label><input type="tel" className={UI.input} placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
+                   <div className={UI.grid2}>
+                       <div><label className={UI.label}># Empleado</label><input required className={UI.input} value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/></div>
+                       <div><label className={UI.label}>Nombre Completo</label><input required className={UI.input} value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/></div>
+                   </div>
+                   <div className={UI.grid2}>
+                       <div><label className={UI.label}>Email Corporativo</label><input type="email" required className={UI.input} value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/></div>
+                       <div><label className={UI.label}>Teléfono de Contacto</label><input type="tel" className={UI.input} placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
+                   </div>
                    <div><label className={UI.label}>Rol Técnico</label><select className={UI.select} value={formUser.role} onChange={e=>setFormUser({...formUser,role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select></div>
                    <div className="flex gap-2">
-                     <button className={UI.btnPrimary}>{isEditing ? 'Actualizar Personal' : 'Registrar Personal'}</button>
+                     <button className={UI.btnPrimary}>Confirmar</button>
                      <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                    </div>
                 </form>
@@ -845,6 +591,55 @@ export default function App() {
                 })()}
             </div>
          </div>
+      )}
+
+      {/* --- MODAL VER DETALLE CHECKLIST --- */}
+      {activeModal === 'checklist-detail' && viewChecklistData && (
+        <div className={UI.modalOverlay}>
+           <div className={`${UI.modalBox} max-w-4xl`}>
+               <div className={UI.modalHeader}>
+                   <div>
+                       <h3 className={UI.title}>REPORTE DE INSPECCIÓN #{viewChecklistData.header.checklist_id}</h3>
+                       <p className="text-slate-400 font-bold text-xs mt-1">
+                           FECHA: {formatDate(viewChecklistData.header.date)} | TÉCNICO: {viewChecklistData.header.tech_name}
+                       </p>
+                   </div>
+                   <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
+               </div>
+               
+               <div className={UI.modalScroll}>
+                   <table className="w-full text-xs text-left">
+                       <thead className="bg-slate-100 text-slate-500 uppercase font-bold">
+                           <tr>
+                               <th className="p-3 border-r">Activo</th>
+                               {["Clear fixture", "Label clear", "X/Y/Z move", "X/Y/Z adjust", "Supp pin loose", "Stopper loose", "Wear parts", "Set fixture", "Foam cond."].map((col, i) => (
+                                   <th key={i} className="p-2 text-center border-r text-[9px]">{col}</th>
+                               ))}
+                               <th className="p-3">Observaciones</th>
+                           </tr>
+                       </thead>
+                       <tbody className="divide-y divide-slate-100">
+                           {viewChecklistData.items.map(item => (
+                               <tr key={item.item_id}>
+                                   <td className="p-3 border-r font-bold text-slate-700 bg-slate-50/50">{item.fixture_name}</td>
+                                   {[1,2,3,4,5,6,7,8,9].map(n => (
+                                       <td key={n} className="p-1 border-r text-center">
+                                           <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                               item[`check_${n}`] === 'OK' ? 'bg-green-100 text-green-700' : 
+                                               item[`check_${n}`] === 'NOK' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                           }`}>
+                                               {item[`check_${n}`]}
+                                           </span>
+                                       </td>
+                                   ))}
+                                   <td className="p-3 text-slate-500 italic">{item.remarks}</td>
+                               </tr>
+                           ))}
+                       </tbody>
+                   </table>
+               </div>
+           </div>
+        </div>
       )}
 
     </div>
