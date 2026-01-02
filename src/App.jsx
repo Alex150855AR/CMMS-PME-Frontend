@@ -6,7 +6,7 @@ import {
   Wifi, WifiOff, Edit, Printer, FileText, Filter, Trash2, Eye,
   CheckCircle, AlertCircle, FilePlus, UserPlus, Image as ImageIcon,
   BookOpen, ChevronRight, HardHat, Info, Upload, File as FileIcon,
-  Phone, ListTodo, History, Save
+  Phone, ListTodo, History, Save, RefreshCw
 } from 'lucide-react';
 
 export default function App() {
@@ -24,6 +24,7 @@ export default function App() {
   const [dbWorkOrders, setDbWorkOrders] = useState([]); 
   const [dbInventory, setDbInventory] = useState([]);
   const [dbStaff, setDbStaff] = useState([]); 
+  const [dbLogs, setDbLogs] = useState([]); // <--- NUEVO: BITÁCORA
   
   // --- ESTADOS DE FILTRADO (ACTIVOS) ---
   const [searchTerm, setSearchTerm] = useState(''); 
@@ -40,30 +41,19 @@ export default function App() {
 
   // --- ESTILOS ESTANDARIZADOS (UI SYSTEM) ---
   const UI = {
-    // Contenedores y Modales
     modalOverlay: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto",
-    // Se estandariza el modalBox para que sea responsive y maneje el scroll interno si es necesario
     modalBox: "bg-white rounded-[2rem] shadow-2xl w-full mx-auto p-6 sm:p-8 my-8 relative flex flex-col max-h-[90vh]", 
-    modalScroll: "overflow-y-auto pr-2 -mr-2 flex-1", // Nuevo: para el área scrolleable dentro del modal
+    modalScroll: "overflow-y-auto pr-2 -mr-2 flex-1", 
     modalHeader: "flex justify-between items-center mb-6 border-b border-slate-100 pb-4 shrink-0",
     title: "text-xl sm:text-2xl font-black text-slate-800 uppercase tracking-tighter",
-    
-    // Formularios
     label: "text-[10px] sm:text-xs font-black text-slate-700 uppercase tracking-widest mb-1.5 block",
     input: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all placeholder:text-slate-300",
     select: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all appearance-none",
     textarea: "w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all h-24 resize-none",
-    
-    // Botones Estandarizados (Acciones Principales y Secundarias)
     btnPrimary: "w-full bg-blue-600 text-white py-3.5 rounded-xl font-black uppercase tracking-widest shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300 transition-all active:scale-[0.98]",
     btnSecondary: "w-full bg-slate-100 text-slate-400 py-3.5 rounded-xl font-bold uppercase tracking-wide hover:bg-slate-200 hover:text-slate-600 transition-all",
-    
-    // Botón de Cabecera (Añadir Nuevo - Estandarizado)
     headerBtn: "bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all flex items-center gap-2 text-sm active:scale-95 whitespace-nowrap",
-    
     closeBtn: "p-2 bg-slate-50 rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors",
-    
-    // Grid System Responsivo (1 columna móvil, 2 columnas tablet/desktop)
     grid2: "grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6",
   };
 
@@ -113,7 +103,7 @@ export default function App() {
 
   const loadAllData = async () => {
     setLoading(true);
-    await Promise.allSettled([fetchAssets(), fetchWorkOrders(), fetchInventory(), fetchUsers()]);
+    await Promise.allSettled([fetchAssets(), fetchWorkOrders(), fetchInventory(), fetchUsers(), fetchLogs()]);
     setLoading(false);
   };
 
@@ -137,6 +127,7 @@ export default function App() {
   };
   const fetchInventory = async () => { try { const res = await fetch(`${BASE_URL}/inventory`); if(res.ok) setDbInventory(await res.json()); } catch(e){} };
   const fetchUsers = async () => { try { const res = await fetch(`${BASE_URL}/users`); if(res.ok) setDbStaff(await res.json()); } catch(e){} };
+  const fetchLogs = async () => { try { const res = await fetch(`${BASE_URL}/audit-logs`); if(res.ok) setDbLogs(await res.json()); } catch(e){} };
 
   // --- HELPERS ---
   const formatDate = (dateString) => {
@@ -199,7 +190,10 @@ export default function App() {
     };
     try {
         const res = await fetch(`${BASE_URL}/work-orders/${woId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (res.ok) { fetchWorkOrders(); fetchUsers(); alert(`Estado actualizado a: ${newStatus}`); } 
+        if (res.ok) { 
+           fetchWorkOrders(); fetchUsers(); fetchLogs(); // Actualizar bitácora también
+           alert(`Estado actualizado a: ${newStatus}`); 
+        } 
         else { alert('Error al actualizar estado'); }
     } catch (e) { alert('Error de conexión'); }
   };
@@ -342,8 +336,9 @@ export default function App() {
      const payload = { date: chkDate, project: chkProject, model: chkModel, line: chkLine, tech_id: chkTech, items };
      try {
         const res = await fetch(`${BASE_URL}/daily-checklists`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-        if(res.ok) { alert("Checklist Guardado"); setChkData({}); } 
-        else alert("Error guardando checklist");
+        if(res.ok) { 
+           alert("Checklist Guardado"); setChkData({}); fetchLogs(); // Actualizar bitácora
+        } else alert("Error guardando checklist");
      } catch(e) { alert("Error conexión"); }
   };
 
@@ -434,7 +429,6 @@ export default function App() {
                   <div className="text-slate-700 font-bold">{formatDate(ot.scheduled_start)}</div>
                   <div className="text-[10px] text-slate-400 italic">Fin: {formatDate(ot.scheduled_end)}</div>
                 </td>
-                {/* COLUMNA ACTIVIDAD */}
                 <td className="px-5 py-5 text-slate-600 max-w-xs truncate" title={ot.title || ot.description}>{ot.title || ot.description}</td>
                 <td className="px-4 py-5 text-center">
                     <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600 border border-red-100':'bg-blue-50 text-blue-600 border border-blue-100'}`}>
@@ -590,6 +584,36 @@ export default function App() {
     );
   };
 
+  // --- VISTA BITÁCORA (TIMELINE) ---
+  const renderBitacoraView = () => (
+    <div className="space-y-6 animate-in fade-in">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-slate-800">Bitácora de Actividades</h2>
+        <button onClick={async () => { try { const res = await fetch(`${BASE_URL}/audit-logs`); if(res.ok) setDbLogs(await res.json()); } catch(e){} }} 
+          className="bg-slate-100 text-slate-500 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-200 flex items-center">
+            <History className="w-4 h-4 mr-2"/> Actualizar
+        </button>
+      </div>
+      <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-8">
+        {dbLogs.length === 0 ? <div className="pl-8 text-slate-400 italic">No hay registros recientes.</div> : dbLogs.map((log) => (
+             <div key={log.log_id} className="relative pl-8 group">
+                <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white shadow-sm ${log.action_type === 'CREATE' ? 'bg-green-500' : log.action_type === 'UPDATE' ? 'bg-blue-500' : 'bg-slate-400'}`}></div>
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all">
+                    <div className="flex justify-between items-start mb-2">
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-black uppercase tracking-widest bg-slate-50 text-slate-500 w-max px-2 py-0.5 rounded mb-1">{log.module} • {log.action_type}</span>
+                            <p className="text-sm font-bold text-slate-800">{log.description}</p>
+                        </div>
+                        <span className="text-[10px] font-medium text-slate-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center text-xs text-slate-500 mt-2 border-t border-slate-50 pt-2"><Users className="w-3 h-3 mr-1"/> Usuario: <span className="font-bold ml-1">{log.user_name || 'Sistema'}</span></div>
+                </div>
+             </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="bg-slate-50 font-sans text-slate-800 h-screen flex overflow-hidden">
       {/* SIDEBAR */}
@@ -600,6 +624,7 @@ export default function App() {
           <NavButton icon={<Box />} label="Activos" view="assets" current={currentView} set={setCurrentView} />
           <NavButton icon={<ClipboardList />} label="Órdenes Trabajo" view="workorders" current={currentView} set={setCurrentView} />
           <NavButton icon={<Package />} label="Inventario" view="inventory" current={currentView} set={setCurrentView} />
+          <NavButton icon={<BookOpen />} label="Bitácora" view="bitacora" current={currentView} set={setCurrentView} />
           <NavButton icon={<Users />} label="Equipo" view="team" current={currentView} set={setCurrentView} />
           <NavButton icon={<CheckSquare />} label="Checklist" view="checklist" current={currentView} set={setCurrentView} />
         </nav>
@@ -607,7 +632,7 @@ export default function App() {
 
       <div className="flex-1 flex flex-col h-full overflow-hidden w-full">
         <header className="h-20 bg-white border-b flex items-center justify-between px-8 flex-shrink-0 z-10">
-          <div className="flex items-center"><button onClick={() => setIsSidebarOpen(true)} className="md:hidden mr-3 p-2 bg-slate-50 rounded-lg"><Menu/></button><h1 className="text-xl font-bold text-slate-800 capitalize tracking-tight">{currentView}</h1></div>
+          <div className="flex items-center"><button onClick={() => setIsSidebarOpen(true)} className="md:hidden mr-3 p-2 bg-slate-50 rounded-lg"><Menu/></button><h1 className="text-xl font-bold text-slate-800 capitalize tracking-tight">{currentView === 'workorders' ? 'Órdenes de Trabajo' : currentView === 'team' ? 'Gestión de Equipo' : currentView}</h1></div>
           <div className={`px-4 py-2 rounded-full text-[10px] font-black flex items-center gap-2 border ${serverStatus==='online'?'bg-green-50 text-green-600 border-green-100':'bg-red-50 text-red-600 border-red-100'}`}>SISTEMA {serverStatus.toUpperCase()}</div>
         </header>
 
@@ -619,6 +644,7 @@ export default function App() {
               {currentView === 'team' && renderTeamView()}
               {currentView === 'inventory' && renderInventoryView()}
               {currentView === 'checklist' && renderChecklistView()}
+              {currentView === 'bitacora' && renderBitacoraView()}
               {currentView === 'dashboard' && <div className="text-center py-20 text-slate-300 font-black italic uppercase tracking-widest">Dashboard V3 Próximamente...</div>}
             </>
           )}
@@ -630,13 +656,13 @@ export default function App() {
       {/* MODAL ACTIVO */}
       {activeModal === 'asset' && (
         <div className={UI.modalOverlay}>
-          <div className={`${UI.modalBox} max-w-3xl`}>
+          <div className={`${UI.modalBox} max-w-xl`}>
             <div className={UI.modalHeader}>
               <h3 className={UI.title}>{isEditing ? 'Actualizar Activo' : 'Nuevo Activo'}</h3>
               <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
             </div>
             <div className={UI.modalScroll}>
-                <form onSubmit={handleSaveAsset} className="space-y-5">
+                <form onSubmit={handleSaveAsset} className="space-y-4">
                    <div className={UI.grid2}>
                      <div><label className={UI.label}>Proyecto</label>
                       <input list="projects" required className={UI.input} value={formAsset.project_name} onChange={e=>setFormAsset({...formAsset,project_name:e.target.value})}/>
@@ -662,7 +688,7 @@ export default function App() {
                    </div>
                    <div><label className={UI.label}>Descripción</label><textarea className={UI.textarea} value={formAsset.description} onChange={e=>setFormAsset({...formAsset,description:e.target.value})}/></div>
                    <div className="flex gap-2">
-                     <button type="submit" className={UI.btnPrimary}>Guardar</button>
+                     <button type="submit" className={UI.btnPrimary}>{isEditing ? 'Actualizar Activo' : 'Guardar Activo'}</button>
                      <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                    </div>
                 </form>
@@ -674,13 +700,13 @@ export default function App() {
       {/* MODAL ORDEN */}
       {activeModal === 'wo' && (
         <div className={UI.modalOverlay}>
-          <div className={`${UI.modalBox} max-w-4xl`}>
+          <div className={`${UI.modalBox} max-w-2xl`}>
             <div className={UI.modalHeader}>
                <h3 className={UI.title}>{isEditing ? 'Editar Orden' : 'Nueva Orden'}</h3>
                <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
             </div>
             <div className={UI.modalScroll}>
-                <form onSubmit={handleSaveWO} className="space-y-5">
+                <form onSubmit={handleSaveWO} className="space-y-4">
                    {/* Sección de Selección de Activo */}
                    {!isEditing ? (
                      <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100 space-y-4">
@@ -692,7 +718,7 @@ export default function App() {
                      </div>
                    ) : (
                      <div className="bg-slate-100 p-4 rounded-3xl border border-slate-200">
-                        <label className={UI.label}>Activo Vinculado (No editable)</label>
+                        <label className={UI.label}>Activo Vinculado </label>
                         <div className="text-sm font-bold text-slate-700">{formWO.fixture_name} ({formWO.serial_number})</div>
                      </div>
                    )}
@@ -713,7 +739,7 @@ export default function App() {
                    {isEditing && (<div><label className={UI.label}>Estado</label><select className={`${UI.select} text-blue-600`} value={formWO.status} onChange={e=>setFormWO({...formWO, status:e.target.value})}><option>Programado</option><option>Reprogramado</option><option>Completado</option><option>No Completado</option></select></div>)}
                    <div><label className={UI.label}>Técnico</label><select className={UI.select} value={formWO.tech_id} onChange={e=>setFormWO({...formWO, tech_id:e.target.value})}><option value="">-- Seleccionar --</option>{dbStaff.map(s=><option key={s.user_id} value={s.user_id}>{s.full_name}</option>)}</select></div>
                    <div className="flex gap-2">
-                     <button type="submit" className={UI.btnPrimary}>Confirmar</button>
+                     <button type="submit" className={UI.btnPrimary}>{isEditing ? 'Actualizar Orden' : 'Generar Orden'}</button>
                      <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                    </div>
                 </form>
@@ -725,27 +751,23 @@ export default function App() {
       {/* MODAL INVENTARIO */}
       {activeModal === 'item' && (
         <div className={UI.modalOverlay}>
-          <div className={`${UI.modalBox} max-w-2xl`}>
+          <div className={`${UI.modalBox} max-w-md`}>
             <div className={UI.modalHeader}>
               <h3 className={UI.title}>{isEditing?'Editar':'Nuevo'} Repuesto</h3>
               <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
             </div>
             <div className={UI.modalScroll}>
-                <form onSubmit={handleSaveItem} className="space-y-5">
-                   <div className={UI.grid2}>
-                       <div><label className={UI.label}>Código de Parte (ID)</label><input required className={UI.input} value={formItem.part_code} onChange={e=>setFormItem({...formItem,part_code:e.target.value})}/></div>
-                       <div><label className={UI.label}>Nombre del Repuesto</label><input required className={UI.input} value={formItem.name} onChange={e=>setFormItem({...formItem,name:e.target.value})}/></div>
-                   </div>
+                <form onSubmit={handleSaveItem} className="space-y-4">
+                   <div><label className={UI.label}>Código de Parte (ID)</label><input required className={UI.input} value={formItem.part_code} onChange={e=>setFormItem({...formItem,part_code:e.target.value})}/></div>
+                   <div><label className={UI.label}>Nombre del Repuesto</label><input required className={UI.input} value={formItem.name} onChange={e=>setFormItem({...formItem,name:e.target.value})}/></div>
                    <div className={UI.grid2}>
                      <div><label className={UI.label}>Stock Actual</label><input type="number" required className={UI.input} value={formItem.stock_quantity} onChange={e=>setFormItem({...formItem,stock_quantity:e.target.value})}/></div>
                      <div><label className={UI.label}>Nivel Mínimo</label><input type="number" required className={UI.input} value={formItem.min_stock_level} onChange={e=>setFormItem({...formItem,min_stock_level:e.target.value})}/></div>
                    </div>
-                   <div className={UI.grid2}>
-                       <div><label className={UI.label}>Costo Unitario ($)</label><input type="number" required className={UI.input} value={formItem.unit_cost} onChange={e=>setFormItem({...formItem,unit_cost:e.target.value})}/></div>
-                       <div><label className={UI.label}>Ubicación Almacén</label><input className={UI.input} placeholder="Ej. Bin A-2" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem,location_in_warehouse:e.target.value})}/></div>
-                   </div>
+                   <div><label className={UI.label}>Costo Unitario ($)</label><input type="number" required className={UI.input} value={formItem.unit_cost} onChange={e=>setFormItem({...formItem,unit_cost:e.target.value})}/></div>
+                   <div><label className={UI.label}>Ubicación Almacén</label><input className={UI.input} placeholder="Ej. Bin A-2" value={formItem.location_in_warehouse} onChange={e=>setFormItem({...formItem,location_in_warehouse:e.target.value})}/></div>
                    <div className="flex gap-2">
-                     <button className={UI.btnPrimary}>Confirmar Registro</button>
+                     <button className={UI.btnPrimary}>{isEditing ? 'Actualizar Ítem' : 'Guardar Ítem'}</button>
                      <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                    </div>
                 </form>
@@ -757,24 +779,20 @@ export default function App() {
       {/* MODAL USUARIO */}
       {activeModal === 'user' && (
         <div className={UI.modalOverlay}>
-          <div className={`${UI.modalBox} max-w-2xl`}>
+          <div className={`${UI.modalBox} max-w-md`}>
             <div className={UI.modalHeader}>
                <h3 className={UI.title}>{isEditing?'Editar':'Nuevo'} Personal</h3>
                <button onClick={()=>setActiveModal(null)} className={UI.closeBtn}><X/></button>
             </div>
             <div className={UI.modalScroll}>
-                <form onSubmit={handleSaveUser} className="space-y-5">
-                   <div className={UI.grid2}>
-                       <div><label className={UI.label}># Empleado</label><input required className={UI.input} value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/></div>
-                       <div><label className={UI.label}>Nombre Completo</label><input required className={UI.input} value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/></div>
-                   </div>
-                   <div className={UI.grid2}>
-                       <div><label className={UI.label}>Email Corporativo</label><input type="email" required className={UI.input} value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/></div>
-                       <div><label className={UI.label}>Teléfono de Contacto</label><input type="tel" className={UI.input} placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
-                   </div>
+                <form onSubmit={handleSaveUser} className="space-y-4">
+                   <div><label className={UI.label}># Empleado</label><input required className={UI.input} value={formUser.employee_number} onChange={e=>setFormUser({...formUser,employee_number:e.target.value})}/></div>
+                   <div><label className={UI.label}>Nombre Completo</label><input required className={UI.input} value={formUser.full_name} onChange={e=>setFormUser({...formUser,full_name:e.target.value})}/></div>
+                   <div><label className={UI.label}>Email Corporativo</label><input type="email" required className={UI.input} value={formUser.email} onChange={e=>setFormUser({...formUser,email:e.target.value})}/></div>
+                   <div><label className={UI.label}>Teléfono de Contacto</label><input type="tel" className={UI.input} placeholder="Ej. 555-1234-5678" value={formUser.phone_number} onChange={e=>setFormUser({...formUser,phone_number:e.target.value})}/></div>
                    <div><label className={UI.label}>Rol Técnico</label><select className={UI.select} value={formUser.role} onChange={e=>setFormUser({...formUser,role:e.target.value})}><option>Tecnico</option><option>Ingeniero</option><option>Supervisor</option></select></div>
                    <div className="flex gap-2">
-                     <button className={UI.btnPrimary}>Confirmar</button>
+                     <button className={UI.btnPrimary}>{isEditing ? 'Actualizar Personal' : 'Registrar Personal'}</button>
                      <button type="button" onClick={()=>setActiveModal(null)} className={UI.btnSecondary}>Cancelar</button>
                    </div>
                 </form>
@@ -795,7 +813,6 @@ export default function App() {
                     <button onClick={closeTechHistory} className={UI.closeBtn}><X/></button>
                 </div>
                 {(() => {
-                    // COMPARACIÓN DE ID ROBUSTA
                     const techOrders = dbWorkOrders.filter(wo => wo.assigned_user_id == techHistoryModal.tech?.user_id);
                     const displayedOrders = techHistoryModal.type === 'pending' ? techOrders.filter(wo => !['Completado', 'No Completado'].includes(wo.status)) : techOrders;
                     
@@ -804,14 +821,13 @@ export default function App() {
                     return (
                         <div className="overflow-x-auto">
                             <table className="w-full text-xs text-left">
-                                <thead className="bg-slate-50 text-slate-400 uppercase font-black"><tr><th className="p-4">OT #</th><th className="p-4">Activo</th><th className="p-4">Tarea</th><th className="p-4">Fechas</th><th className="p-4">Prioridad</th><th className="p-4">Estado</th></tr></thead>
+                                <thead className="bg-slate-50 text-slate-400 uppercase font-black"><tr><th className="p-4">OT #</th><th className="p-4">Activo</th><th className="p-4">Tarea</th><th className="p-4">Prioridad</th><th className="p-4">Estado</th></tr></thead>
                                 <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
                                     {displayedOrders.map(ot => (
                                         <tr key={ot.wo_id}>
                                             <td className="p-4 font-black text-blue-600">#{ot.wo_id}</td>
                                             <td className="p-4 font-bold">{ot.fixture_name}</td>
                                             <td className="p-4 truncate max-w-xs">{ot.title || ot.description}</td>
-                                            <td className="p-4">{formatDate(ot.scheduled_start)} - {formatDate(ot.scheduled_end)}</td>
                                             <td className="p-4"><span className={`px-2 py-1 rounded text-[10px] font-black ${ot.priority==='Critica'?'bg-red-100 text-red-600':'bg-blue-50 text-blue-600'}`}>{ot.priority}</span></td>
                                             <td className="p-4">
                                                 {techHistoryModal.type === 'pending' ? (
@@ -840,5 +856,3 @@ const NavButton = ({ icon, label, view, current, set }) => (
     <span className={`mr-4 ${current === view ? 'text-blue-600' : 'text-slate-300'}`}>{icon}</span>{label}
   </button>
 );
-
-// Sistema Funcional 
