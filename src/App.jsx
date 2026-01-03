@@ -6,8 +6,9 @@ import {
   Wifi, WifiOff, Edit, Printer, FileText, Filter, Trash2, Eye,
   CheckCircle, AlertCircle, FilePlus, UserPlus, Image as ImageIcon,
   BookOpen, ChevronRight, HardHat, Info, Upload, File as FileIcon,
-  Phone, ListTodo, History, Save, RefreshCw
+  Phone, ListTodo, History, Save, RefreshCw, BarChart2, PieChart as PieIcon
 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 export default function App() {
   // --- ESTADOS UI ---
@@ -29,6 +30,7 @@ export default function App() {
   const [dbStaff, setDbStaff] = useState([]); 
   const [dbLogs, setDbLogs] = useState([]); 
   const [dbChecklists, setDbChecklists] = useState([]); 
+  const [dashboardData, setDashboardData] = useState(null);
   const [bitacoraTab, setBitacoraTab] = useState('workorders');
   
   // --- ESTADOS DE FILTRADO (ACTIVOS) ---
@@ -68,6 +70,7 @@ export default function App() {
         if (status === 'Completado') colors = 'bg-green-100 text-green-700 border-green-200';
         if (status === 'No Completado') colors = 'bg-red-100 text-red-700 border-red-200';
         if (status === 'Reprogramado') colors = 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        if (status === 'En Progreso') colors = 'bg-blue-100 text-blue-700 border-blue-200';
         return `px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${colors}`;
     }
   };
@@ -117,7 +120,7 @@ export default function App() {
 
   const loadAllData = async () => {
     setLoading(true);
-    await Promise.allSettled([fetchAssets(), fetchWorkOrders(), fetchInventory(), fetchUsers(), fetchLogs(), fetchChecklists()]);
+    await Promise.allSettled([fetchAssets(), fetchWorkOrders(), fetchInventory(), fetchUsers(), fetchLogs(), fetchChecklists(), fetchDashboard()]);
     setLoading(false);
   };
 
@@ -134,6 +137,7 @@ export default function App() {
   const fetchUsers = async () => { try { const res = await fetch(`${BASE_URL}/users`); if(res.ok) setDbStaff(await res.json()); } catch(e){} };
   const fetchLogs = async () => { try { const res = await fetch(`${BASE_URL}/audit-logs`); if(res.ok) setDbLogs(await res.json()); } catch(e){} };
   const fetchChecklists = async () => { try { const res = await fetch(`${BASE_URL}/daily-checklists`); if(res.ok) setDbChecklists(await res.json()); } catch(e){} };
+  const fetchDashboard = async () => { try { const res = await fetch(`${BASE_URL}/dashboard`); if(res.ok) setDashboardData(await res.json()); } catch(e){} };
 
   // --- HELPERS ---
   const formatDate = (dateString) => { if (!dateString) return '-'; try { const d = new Date(dateString); return isNaN(d.getTime()) ? '-' : d.toLocaleDateString(); } catch (e) { return '-'; } };
@@ -167,7 +171,7 @@ export default function App() {
   const handleUpdateStatusFromTable = async (woId, newStatus) => {
     const originalWO = dbWorkOrders.find(w => w.wo_id === woId); if (!originalWO) return;
     const payload = { description: originalWO.title || originalWO.description, priority: originalWO.priority, status: newStatus, authorized_by: originalWO.authorized_by, location: originalWO.location, scheduled_start: originalWO.scheduled_start, scheduled_end: originalWO.scheduled_end, assigned_user_id: originalWO.assigned_user_id };
-    try { const res = await fetch(`${BASE_URL}/work-orders/${woId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); if (res.ok) { fetchWorkOrders(); fetchUsers(); fetchLogs(); alert(`Estado actualizado a: ${newStatus}`); } else { alert('Error al actualizar estado'); } } catch (e) { alert('Error de conexión'); }
+    try { const res = await fetch(`${BASE_URL}/work-orders/${woId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); if (res.ok) { fetchWorkOrders(); fetchUsers(); fetchLogs(); fetchDashboard(); alert(`Estado actualizado a: ${newStatus}`); } else { alert('Error al actualizar estado'); } } catch (e) { alert('Error de conexión'); }
   };
 
   const viewChecklistDetails = async (id) => {
@@ -185,6 +189,12 @@ export default function App() {
     doc.autoTable({ startY: nextY + 5, head: [['INICIO', 'FIN', 'TÉCNICO', 'AUTORIZÓ']], body: [[formatDate(ot.scheduled_start), formatDate(ot.scheduled_end), ot.tech_name || 'N/A', ot.authorized_by || 'N/A']], theme: 'grid', headStyles: { fillColor: blue } });
     doc.text("4. MATERIALES", 14, doc.lastAutoTable.finalY + 10); const matList = ot.materials_used ? ot.materials_used.split(',').map(m => [m.trim()]) : [['Ninguno']];
     doc.autoTable({ startY: doc.lastAutoTable.finalY + 15, head: [['MATERIAL / CANTIDAD']], body: matList, theme: 'striped', headStyles: { fillColor: [50, 50, 50] } });
+    
+    // Firmas
+    const pageHeight = doc.internal.pageSize.height;
+    doc.line(20, pageHeight - 40, 80, pageHeight - 40); doc.text("FIRMA TÉCNICO", 35, pageHeight - 35);
+    doc.line(130, pageHeight - 40, 190, pageHeight - 40); doc.text("FIRMA SUPERVISOR", 145, pageHeight - 35);
+    
     doc.save(`OT-${ot.wo_id}.pdf`);
   };
 
@@ -196,7 +206,7 @@ export default function App() {
   const handleSaveWO = (e) => { e.preventDefault(); if(!formWO.asset_id && !isEditing) return alert("Seleccione activo."); const p = {...formWO, description: formWO.description || `OT ${formWO.type}`, assigned_user_id: formWO.tech_id, material_qty: parseInt(formWO.material_qty)||0 }; apiRequest(`${BASE_URL}/work-orders${isEditing?'/'+formWO.id:''}`, isEditing?'PUT':'POST', p); };
   const handleSaveItem = (e) => { e.preventDefault(); apiRequest(`${BASE_URL}/inventory${isEditing?'/'+formItem.id:''}`, isEditing?'PUT':'POST', formItem); };
   const handleSaveUser = (e) => { e.preventDefault(); apiRequest(`${BASE_URL}/users${isEditing?'/'+formUser.id:''}`, isEditing?'PUT':'POST', formUser); };
-
+  
   const handleSaveChecklist = async () => {
      if(!chkDate || !chkModel || !chkTech) return alert("Complete Fecha, Modelo y Técnico.");
      const assetsToCheck = dbAssets.filter(a => a.model_name === chkModel);
@@ -210,6 +220,83 @@ export default function App() {
   const handleCheckChange = (assetId, checkIdx, value) => { setChkData(prev => ({ ...prev, [`${assetId}_${checkIdx}`]: value })); };
 
   // --- VISTAS ---
+
+  const renderDashboardView = () => {
+    if (!dashboardData) return <div className="text-center py-20 animate-pulse text-slate-400 font-black tracking-widest">CARGANDO ANALÍTICA...</div>;
+    const { kpis, alerts, charts } = dashboardData;
+    const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b'];
+
+    return (
+      <div className="space-y-6 animate-in fade-in">
+         {/* HEADER KPI */}
+         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex items-center justify-between">
+               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OEE (Disponibilidad)</p><h3 className="text-3xl font-black text-blue-600">{kpis.oee}%</h3></div>
+               <div className="bg-blue-50 p-3 rounded-2xl"><Activity className="text-blue-600 w-6 h-6"/></div>
+            </div>
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex items-center justify-between">
+               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MTBF (Hrs)</p><h3 className="text-3xl font-black text-green-600">{kpis.mtbf}</h3></div>
+               <div className="bg-green-50 p-3 rounded-2xl"><Clock className="text-green-600 w-6 h-6"/></div>
+            </div>
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex items-center justify-between">
+               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">MTTR (Hrs)</p><h3 className="text-3xl font-black text-orange-600">{kpis.mttr}</h3></div>
+               <div className="bg-orange-50 p-3 rounded-2xl"><Hammer className="text-orange-600 w-6 h-6"/></div>
+            </div>
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex items-center justify-between">
+               <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Costo Mensual</p><h3 className="text-3xl font-black text-purple-600">${kpis.totalCost}</h3></div>
+               <div className="bg-purple-50 p-3 rounded-2xl"><DollarSign className="text-purple-600 w-6 h-6"/></div>
+            </div>
+         </div>
+
+         {/* GRÁFICOS Y ALERTAS */}
+         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* GRÁFICO DE BARRAS */}
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 col-span-2">
+               <h3 className="font-bold text-slate-800 mb-6 flex items-center"><BarChart2 className="w-5 h-5 mr-2 text-blue-500"/> Tipos de Mantenimiento</h3>
+               <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                     <BarChart data={charts.woByType}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
+                        <XAxis dataKey="maintenance_type" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}}/>
+                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}}/>
+                        <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}/>
+                        <Bar dataKey="count" fill="#3b82f6" radius={[10, 10, 0, 0]} barSize={60} />
+                     </BarChart>
+                  </ResponsiveContainer>
+               </div>
+            </div>
+
+            {/* ALERTAS */}
+            <div className="space-y-6">
+               <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                  <h3 className="font-bold text-slate-800 mb-4 flex items-center"><AlertCircle className="w-5 h-5 text-red-500 mr-2"/> Stock Crítico</h3>
+                  <div className="space-y-3">
+                     {alerts.lowStock.length === 0 ? <p className="text-xs text-slate-400 italic">Todo en orden.</p> : alerts.lowStock.map(item => (
+                        <div key={item.item_id} className="flex justify-between items-center text-xs p-3 bg-red-50 rounded-xl border border-red-100">
+                           <span className="font-bold text-slate-700">{item.name}</span>
+                           <span className="text-red-600 font-black">{item.stock_quantity} / {item.min_stock_level}</span>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+               
+               <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                  <h3 className="font-bold text-slate-800 mb-4 flex items-center"><Clock className="w-5 h-5 text-orange-500 mr-2"/> Órdenes Vencidas</h3>
+                  <div className="space-y-3">
+                     {alerts.overdueWO.length === 0 ? <p className="text-xs text-slate-400 italic">Sin atrasos.</p> : alerts.overdueWO.map(wo => (
+                        <div key={wo.wo_id} className="flex justify-between items-center text-xs p-3 bg-orange-50 rounded-xl border border-orange-100">
+                           <span className="font-bold text-slate-700 truncate w-32">#{wo.wo_id} {wo.description}</span>
+                           <span className="text-orange-600 font-bold">{new Date(wo.scheduled_end).toLocaleDateString()}</span>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            </div>
+         </div>
+      </div>
+    );
+  };
+
   const renderAssetsView = () => (
     <div className="space-y-6 animate-in fade-in">
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
@@ -225,7 +312,7 @@ export default function App() {
   const renderWorkOrdersView = () => (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 w-full overflow-hidden animate-in fade-in">
       <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/20"><h2 className="text-lg font-bold text-slate-800">Órdenes de Trabajo</h2><button onClick={() => { setIsEditing(false); setFormWO(initialWO); setActiveModal('wo'); }} className={UI.headerBtn}><FilePlus className="w-5 h-5"/> Nueva Orden</button></div>
-      <div className="overflow-x-auto"><table className="min-w-full text-xs text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-black border-b tracking-widest"><tr><th className="px-5 py-4">OT #</th><th className="px-5 py-4">Activo / Serial</th><th className="px-5 py-4">Ubicación</th><th className="px-5 py-4">Programación</th><th className="px-5 py-4">Actividad</th><th className="px-4 py-4 text-center">Prioridad</th><th className="px-5 py-4">Materiales</th><th className="px-5 py-4">Técnico</th><th className="px-5 py-4 text-center">Estado</th><th className="px-5 py-4 text-center">Gestión</th></tr></thead><tbody className="divide-y divide-slate-100 font-medium">{dbWorkOrders.map((ot) => (<tr key={ot.wo_id} className="hover:bg-blue-50/10 transition-colors"><td className="px-5 py-5 font-black text-blue-600">#{ot.wo_id}</td><td className="px-5 py-5"><div className="font-bold text-slate-800">{ot.fixture_name||'Desconocido'}</div><div className="text-slate-400 font-mono text-[10px]">{ot.serial_number||'N/A'}</div></td><td className="px-5 py-5 text-slate-500">{ot.location||'N/A'}</td><td className="px-5 py-5"><div className="text-slate-700 font-bold">{formatDate(ot.scheduled_start)}</div><div className="text-[10px] text-slate-400 italic">Fin: {formatDate(ot.scheduled_end)}</div></td><td className="px-5 py-5 text-slate-600 max-w-xs truncate">{ot.title||ot.description}</td><td className="px-4 py-5 text-center"><span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600':'bg-blue-50 text-blue-600'}`}>{ot.priority?ot.priority.toUpperCase():'MEDIA'}</span></td><td className="px-5 py-5 text-slate-500 italic max-w-[150px] truncate">{ot.materials_used||'Ninguno'}</td><td className="px-5 py-5 text-slate-800 font-bold">{ot.tech_name||'Sin asignar'}</td><td className="px-5 py-5 text-center"><span className={`px-2 py-1 rounded-full font-bold text-[10px] uppercase border ${ot.status==='Completado'?'bg-green-100 text-green-800':'bg-gray-50 text-gray-500'}`}>{ot.status}</span></td><td className="px-5 py-5 text-center"><div className="flex justify-center gap-2"><button onClick={()=>{setFormWO({...ot, id:ot.wo_id, start_date:ot.scheduled_start?.split('T')[0], end_date:ot.scheduled_end?.split('T')[0], description:ot.title||ot.description, fixture_name:ot.fixture_name, serial_number:ot.serial_number, tech_id:ot.assigned_user_id});setIsEditing(true);setActiveModal('wo')}} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit className="w-3.5 h-3.5"/></button><button onClick={() => printOrderPDF(ot)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"><Printer className="w-3.5 h-3.5"/></button></div></td></tr>))}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="min-w-full text-xs text-left"><thead className="bg-slate-50 text-slate-500 uppercase font-black border-b tracking-widest"><tr><th className="px-5 py-4">OT #</th><th className="px-5 py-4">Activo / Serial</th><th className="px-5 py-4">Ubicación</th><th className="px-5 py-4">Programación</th><th className="px-5 py-4">Actividad</th><th className="px-4 py-4 text-center">Prioridad</th><th className="px-5 py-4">Materiales</th><th className="px-5 py-4">Técnico</th><th className="px-5 py-4 text-center">Estado</th><th className="px-5 py-4 text-center">Gestión</th></tr></thead><tbody className="divide-y divide-slate-100 font-medium">{dbWorkOrders.map((ot) => (<tr key={ot.wo_id} className="hover:bg-blue-50/10 transition-colors"><td className="px-5 py-5 font-black text-blue-600">#{ot.wo_id}</td><td className="px-5 py-5"><div className="font-bold text-slate-800">{ot.fixture_name||'Desconocido'}</div><div className="text-slate-400 font-mono text-[10px]">{ot.serial_number||'N/A'}</div></td><td className="px-5 py-5 text-slate-500">{ot.location||'N/A'}</td><td className="px-5 py-5"><div className="text-slate-700 font-bold">{formatDate(ot.scheduled_start)}</div><div className="text-[10px] text-slate-400 italic">Fin: {formatDate(ot.scheduled_end)}</div></td><td className="px-5 py-5 text-slate-600 max-w-xs truncate">{ot.title||ot.description}</td><td className="px-4 py-5 text-center"><span className={`px-2 py-1 rounded-lg font-black text-[10px] ${ot.priority==='Critica'?'bg-red-50 text-red-600':'bg-blue-50 text-blue-600'}`}>{ot.priority?ot.priority.toUpperCase():'MEDIA'}</span></td><td className="px-5 py-5 text-slate-500 italic max-w-[150px] truncate">{ot.materials_used||'Ninguno'}</td><td className="px-5 py-5 text-slate-800 font-bold">{ot.tech_name||'Sin asignar'}</td><td className="px-5 py-5 text-center"><span className={UI.statusBadge(ot.status)}>{ot.status}</span></td><td className="px-5 py-5 text-center"><div className="flex justify-center gap-2"><button onClick={()=>{setFormWO({...ot, id:ot.wo_id, start_date:ot.scheduled_start?.split('T')[0], end_date:ot.scheduled_end?.split('T')[0], description:ot.title||ot.description, fixture_name:ot.fixture_name, serial_number:ot.serial_number, tech_id:ot.assigned_user_id});setIsEditing(true);setActiveModal('wo')}} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit className="w-3.5 h-3.5"/></button><button onClick={() => printOrderPDF(ot)} className="p-2 bg-slate-100 text-slate-500 rounded-lg hover:bg-slate-800 hover:text-white transition-all"><Printer className="w-3.5 h-3.5"/></button></div></td></tr>))}</tbody></table></div>
     </div>
   );
 
@@ -267,19 +354,12 @@ export default function App() {
              <div className="overflow-x-auto">
                <table className="w-full text-xs text-left">
                  <thead className="bg-slate-100 text-slate-500 uppercase font-bold">
-                    <tr>
-                       <th className="p-3 border-r min-w-[200px]">Nombre del Equipo</th>
-                       {columns.map((col, idx) => <th key={idx} className="p-2 text-center border-r min-w-[80px] text-[9px]">{col}</th>)}
-                       <th className="p-3 min-w-[200px]">Observaciones</th>
-                    </tr>
+                    <tr><th className="p-3 border-r min-w-[200px]">Nombre del Equipo</th>{columns.map((col, idx) => <th key={idx} className="p-2 text-center border-r min-w-[80px] text-[9px]">{col}</th>)}<th className="p-3 min-w-[200px]">Observaciones</th></tr>
                  </thead>
                  <tbody className="divide-y divide-slate-100">
                     {currentAssets.map(asset => (
                        <tr key={asset.asset_id} className="hover:bg-blue-50/10">
-                          <td className="p-3 border-r font-bold text-slate-700 bg-slate-50/50">
-                             {asset.fixture_name}
-                             <div className="text-[9px] text-slate-400 font-normal">{asset.serial_number}</div>
-                          </td>
+                          <td className="p-3 border-r font-bold text-slate-700 bg-slate-50/50">{asset.fixture_name}<div className="text-[9px] text-slate-400 font-normal">{asset.serial_number}</div></td>
                           {columns.map((_, idx) => (
                              <td key={idx} className="p-1 border-r text-center">
                                 <select 
@@ -292,16 +372,11 @@ export default function App() {
                                    value={chkData[`${asset.asset_id}_${idx+1}`] || ''}
                                    onChange={(e) => handleCheckChange(asset.asset_id, idx+1, e.target.value)}
                                 >
-                                   <option value="">-</option>
-                                   <option value="OK">OK</option>
-                                   <option value="NOK">NOK</option>
-                                   <option value="NA">NA</option>
+                                   <option value="">-</option><option value="OK">OK</option><option value="NOK">NOK</option><option value="NA">NA</option>
                                 </select>
                              </td>
                           ))}
-                          <td className="p-1">
-                             <input className="w-full border-none bg-transparent p-2 text-xs outline-none focus:bg-yellow-50" placeholder="..." value={chkData[`${asset.asset_id}_remarks`] || ''} onChange={(e) => handleCheckChange(asset.asset_id, 'remarks', e.target.value)} />
-                          </td>
+                          <td className="p-1"><input className="w-full border-none bg-transparent p-2 text-xs outline-none focus:bg-yellow-50" placeholder="..." value={chkData[`${asset.asset_id}_remarks`] || ''} onChange={(e) => handleCheckChange(asset.asset_id, 'remarks', e.target.value)} /></td>
                        </tr>
                     ))}
                  </tbody>
@@ -315,7 +390,6 @@ export default function App() {
     );
   };
 
-  // --- VISTA BITÁCORA (TABLA MAESTRA - ACTUALIZADA) ---
   const renderBitacoraView = () => (
     <div className="space-y-6 animate-in fade-in">
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-2 mb-4 flex gap-2 w-max">
@@ -374,7 +448,7 @@ export default function App() {
 
       <div className="flex-1 flex flex-col h-full overflow-hidden w-full">
         <header className="h-20 bg-white border-b flex items-center justify-between px-8 flex-shrink-0 z-10">
-          <div className="flex items-center"><button onClick={() => setIsSidebarOpen(true)} className="md:hidden mr-3 p-2 bg-slate-50 rounded-lg"><Menu/></button><h1 className="text-xl font-bold text-slate-800 capitalize tracking-tight">{currentView}</h1></div>
+          <div className="flex items-center"><button onClick={() => setIsSidebarOpen(true)} className="md:hidden mr-3 p-2 bg-slate-50 rounded-lg"><Menu/></button><h1 className="text-xl font-bold text-slate-800 capitalize tracking-tight">{currentView === 'workorders' ? 'Órdenes de Trabajo' : currentView === 'team' ? 'Gestión de Equipo' : currentView}</h1></div>
           <div className={`px-4 py-2 rounded-full text-[10px] font-black flex items-center gap-2 border ${serverStatus==='online'?'bg-green-50 text-green-600 border-green-100':'bg-red-50 text-red-600 border-red-100'}`}>SISTEMA {serverStatus.toUpperCase()}</div>
         </header>
 
@@ -387,7 +461,7 @@ export default function App() {
               {currentView === 'inventory' && renderInventoryView()}
               {currentView === 'checklist' && renderChecklistView()}
               {currentView === 'bitacora' && renderBitacoraView()}
-              {currentView === 'dashboard' && <div className="text-center py-20 text-slate-300 font-black italic uppercase tracking-widest">Dashboard V3 Próximamente...</div>}
+              {currentView === 'dashboard' && renderDashboardView()}
             </>
           )}
         </main>
